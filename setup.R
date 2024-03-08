@@ -28,10 +28,33 @@ filter_dates <- function(data, date_start, date_end) {
 
 ### PREDICTION AND PLOT HELPERS
 
+plot_ae <- function(data, color_attribute = "patch", title = "Plot") {
+  ggplot(data, aes(x = lon, y = lat)) +
+    geom_polygon(data = ggplot2::map_data("world"), 
+                 aes(long, lat, group = group),
+                 fill = "lightgray", col = "gray") +
+    geom_point(aes_string(col = color_attribute), alpha = .7, size = .3) +
+    coord_quickmap(xlim = c(-76, -40), ylim = c(35, 60), expand = TRUE) +
+    theme_bw() + 
+    ggtitle(title)
+}
+
 # Returns a list of month names
 mon_names <- function() {
   c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+}
+
+# Returns a list of variable abbreviations
+var_abb <- function() {
+  list(Bathy_depth = "Bathymetry", 
+       MLD = "Mixed Layer Depth", 
+       SST = "Surface Temperature", 
+       Tbtm = "Bottom Temperature", 
+       Sbtm = "Bottom Salinity", 
+       SSS = "Surface Salinity", 
+       Vel = "Velocity", 
+       month = "Month")
 }
 
 # converts a month number to the corresponding string 
@@ -153,7 +176,6 @@ write_config <- function(config,
   yaml::write_yaml(config, yaml_file)
   return(config)
 }
-
 
 
 

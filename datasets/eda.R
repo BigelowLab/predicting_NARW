@@ -8,6 +8,16 @@ library(lubridate)
 
 setwd("/mnt/ecocast/projectdata/calanusclimate")
 
+library(corrplot)
+
+cor_mat <- readr::read_csv(file.path("/mnt/ecocast/projectdata/calanusclimate",
+                                     "src/tc_datasets/ae_dryweight_nooutliers_chyp.csv.gz")) |>
+  select(Bathy_depth:V, -land_mask) |>
+  cor()
+
+corrplot(cor_mat, addCoef.col = "black", 
+         method = "circle", type = "full", order = "alphabet")
+
 save_eda <- function(plot, filename) {
   pdf(file.path("plots", filename))
   print(plot)
@@ -124,16 +134,6 @@ if (FALSE) {
     save_eda("brickman_correlation_matrix_annotated.pdf")
 }
 
-(ggplot(data) +
-  geom_polygon(data = ggplot2::map_data("world"), 
-               aes(long, lat, group = group)) +
-  geom_point(aes(x = lon, y = lat, col = patch), alpha = .5, size = .3) +
-  coord_quickmap(xlim = c(-76, -40),
-                 ylim = c(35, 60),
-                 expand = TRUE) +
-  theme_bw()) |>
-  save_eda("glacialis_locations.pdf")
-
 # abundance bar charts 
 if (FALSE) {
   data <- get_data(vars = "abundance", 
@@ -197,93 +197,72 @@ if (FALSE) {
   save_eda(list(plot_agg, plot_mon), "species abundance/cgla_abundance.pdf")
 }
 
-# pelagic exploration
+# Plot Threshold
 if (FALSE) {
-  setwd("/mnt/ecocast/projectdata/calanusclimate/src/pelagic")
-  files <- list.files()
+  brickman <- brickman::read_brickman(scenario = "PRESENT", 
+                                      vars = c("Bathy_depth", "land_mask"), 
+                                      interval = "ann", 
+                                      form = "stars") |>
+    st_downsample(n = 1) |>
+    st_as_sf(coords = c("x", "y"), crs = 4326) |>
+    filter(land_mask == 1) |>
+    na.omit()
   
-  pelagic_data <- files |>
-    map(~ readr::read_csv(.x,
-                          skip = 15,
-                          col_types = readr::cols()) |>
-          mutate(file_source = .x)) |>
-    bind_rows() |>
-    rename(lon = LONGITDE, lat = LATITUDE, 
-           month = MON, abundance = `VALUE-per-area`) |>
-    mutate_at(c("lon", "lat", "abundance", "month"), as.numeric)
+  base <- 40000 * 195
+  slope <- 100 * 195
   
-  brickman_pel <- pelagic_data |>
-    filter(between(lon, -101.50, 24.46) &
-             between(lat, 15.96, 75.25))
+  # performing threshold conversion
+  threshold_method <- function(Bathy_depth, base, slope) {
+    pmin(pmax(Bathy_depth - 300, 0) * slope + base,
+         1500000*195)
+  }
   
-  b_cop <- brickman_pel |>
-    filter(!(`Taxa-Modifiers` %in% c("-[ c1 ]-", "-[ c2 ]-", "-[ c3 ]-")) &
-             `Taxa-Name` %in% c("Calanus finmarchicus", "Copepoda"))
+  brickman <- brickman |>
+    mutate(threshold = threshold_method(Bathy_depth, base, slope))
   
-  g <- b_cop |>
-    group_by(`#SHP-CRUISE`, YEAR, month, DAY, TIMEgmt, lat, lon)
+  regions <- read_sf(dsn = "src/shapefiles/Regions_dw_vd_poly_all.shp") |>
+    st_make_valid() |>
+    st_transform(crs = 4326)
   
-  b_cop |> filter(`Taxa-Name` == "Calanus finmarchicus") |>
-    pull(abundance),
+  b_crop <- brickman[st_intersects(brickman, regions, sparse = FALSE) |>
+                       apply(1, function(u) any(u)),]
   
-  
-  g |> summarize (cfin = ~ filter(.x, `Taxa-Name` == "Calanus finmarchicus") |>
-                    pull(abundance) |>
-                    sum())
-  
-  gt <- g |> summarize(abundance = sum(abundance), by = `Taxa-Name`)
-  
-  
-  
-  g_taxa |> group_by("Calanus finmarchicus" %in% `Taxa-Name`) |> tally()
-  
-  gt |> filter("Calanus finmarchicus" %in% by)
-  
-  ggplot(g, aes(x = lon, y = lat)) +
+  plot <- ggplot() +
+    geom_sf(data = brickman, aes(fill = log10(threshold + 1),
+                                 col = log10(threshold + 1)), size = .1) +
+    viridis::scale_fill_viridis() +
+    viridis::scale_color_viridis() +
+    guides(color = 'none') +
     geom_polygon(data = ggplot2::map_data("world"), 
-                 aes(long, lat, group = group), 
-                 fill = "gray85", 
-                 colour = "gray70",
-                 size = .2) +
-    geom_point(col = "red") +
-    coord_quickmap(xlim = c(-105, 25),
-                   ylim = c(15, 75),
-                   expand = TRUE)
+                 aes(long, lat, group = group),
+                 fill = "lightgray", col = "gray") +
+    coord_sf(xlim = c(-77.0, -42.5), ylim = c(36.5, 56.7), expand = TRUE) +
+    theme_bw() + 
+    theme(legend.position = 'bottom', 
+          legend.key.width = unit(1.05, "cm")) +
+    ggtitle("E. Glacialis Energetic Biomass Threshold") +
+    labs(fill = "Threshold (ug) (log10(x+1))", x = "Longitude", y = "Latitude")
   
-  unique(g$`Taxa-Name`)
+  save_eda(plot, "Threshold_log.pdf")
+}
+
+# Threshold graph
+if (FALSE) {
+  threshold_method <- function(Bathy_depth, base, slope) {
+    pmin(pmax(Bathy_depth - 300, 0) * slope + base,
+         1500000*195)
+  }
   
-  pelagic <- prepelagic |>
-    filter(!(`Taxa-Modifiers` %in% c("-[ c1 ]-", "-[ c2 ]-", "-[ c3 ]-")) &
-             `Taxa-Name` %in% c("Calanus finmarchicus", "Copepoda")) |>
-    group_by(month, lat, lon, `Taxa-Name`) |>
-    dplyr::summarize(abundance = sum(abundance)) |>
-    group_by(month, lat, lon) |>
-    dplyr::summarize(patch = (abundance[[1]] > 10000) |> as.numeric()) |>
-    as.data.frame() |>
-    filter(patch == 0) |>
-    st_as_sf(coords = c("lon", "lat"), crs = 4326)
+  Bathymetries <- c(0, 300, 1000)
   
-  ######
-  pelagic <- prepelagic |>
-    filter(!(`Taxa-Modifiers` %in% c("-[ c1 ]-", "-[ c2 ]-", "-[ c3 ]-")) &
-             `Taxa-Name` %in% c("Calanus finmarchicus", "Copepoda")) |>
-    group_by(month, lat, lon, `Taxa-Name`) |>
-    dplyr::summarize(abundance = sum(abundance)) |>
-    ungroup()
-  
-  count(pelagic, `Taxa-Name`)
-  
-  ggplot(pelagic, aes(x = lon, y = lat, col = `Taxa-Name`)) +
-    geom_polygon(data = ggplot2::map_data("world"), 
-                 aes(long, lat, group = group), 
-                 fill = "gray85", 
-                 colour = "gray70",
-                 size = .2) +
-    coord_quickmap(xlim = c(-105, 25),
-                   ylim = c(15, 75),
-                   expand = TRUE) +
+  data.frame (x = Bathymetries, 
+              y = threshold_method(Bathymetries, 40000*195, 100*195)) |>
+  ggplot() +
+    geom_line(aes(x, y))  +
+    labs (x = "Bathymetry (m)", y = "Calanus Biomass Threshold (ug)") +
     theme_bw() +
-    geom_point(alpha = .5)
+    ggtitle("Calanus Biomass Threshold Relative to Depth") + 
+    ylim(c(0, NA))
 }
 
   

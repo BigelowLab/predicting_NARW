@@ -1,6 +1,8 @@
 source("setup.R")
 library(RColorBrewer)
 library(viridis)
+library(patchwork)
+library(ggpubr)
 
 ##### HELPERS ##########
 
@@ -12,7 +14,7 @@ library(viridis)
 #' @return df, a table with a "data" column with prediction data from each
 #'   prediction file in climate situation folder and "mon" column with month 
 #'   for corresponding climate data - NA if annual data
-read_preds <- function(v, year, scenario) {
+read_preds <- function(v, year, scenario, save_months = 1:12) {
   
   folder <- pred_path(v, year, scenario)
   # if directory does not exist, return false
@@ -38,19 +40,22 @@ read_preds <- function(v, year, scenario) {
   # constructing list of prediction data named by month
   preds <- 1:12 |>
     lapply(read_month) |>
-    setNames(mon_names()) |>
-    purrr::discard(is.null)
+    setNames(mon_names())
   
   setwd(wd)
-  preds
+  preds[save_months]
 }
 
 #' ALTER THIS METHOD FOR ALTERNATIVE PLOT ARRANGEMENT
 #' 
 #' @param plots list, plot objects
 #' @param path chr, file path to save to 
-save_plots <- function(plots, v, year, scenario, filename) {
-  pdf(pred_path(v, year, scenario, filename))
+save_plots <- function(plots, v, year, scenario, filename, 
+                       verbose = FALSE) {
+  ppath <- pred_path(v, year, scenario, filename)
+  if (verbose) {print(ppath)}
+  
+  pdf(ppath)
   print(plots)
   dev.off()
   
@@ -59,28 +64,43 @@ save_plots <- function(plots, v, year, scenario, filename) {
 
 # grid 2x2 of plots
 # INCOMPLETE: troubleshooting labels
-save_plots_gridded <- function(plots, v, year, scenario, filename,
-                               months = c(1, 4, 7, 10)) {
+save_plots_gridded <- function(v, year, scenario,
+                               months = c("Jan", "Apr", "Jul", "Oct"),
+                               downsample = 2, 
+                               cex_override = .6) {
   
-  winter <- test_plots[[months[[1]]]] + 
+  test_plots <- read_preds(v, year, scenario)[months] |>
+    #get_combined_preds("v4.02.03", "v4.04.01", year = year, scenario = scenario) |>
+    map(~plot_month(.x, "", FALSE, TRUE, downsample,
+                    cex_override = cex_override))
+  
+  winter <- test_plots[[months[1]]] + 
     theme(axis.ticks.x = element_blank(), 
-          axis.text.x = element_blank())
+          axis.text.x = element_blank()) +
+    ggtitle(paste("a)", months[1]))
   
-  spring <- test_plots[[months[[2]]]] + 
+  spring <- test_plots[[months[2]]] + 
     theme(axis.ticks = element_blank(), 
-          axis.text = element_blank())
+          axis.text = element_blank()) +
+    ggtitle(paste("b)", months[2]))
   
-  summer <- test_plots[[months[[3]]]]
+  summer <- test_plots[[months[3]]] +
+    ggtitle(paste("c)", months[3]))
   
-  fall <- test_plots[[months[[4]]]] +
+  fall <- test_plots[[months[4]]] +
     theme(axis.ticks.y = element_blank(), 
-          axis.text.y = element_blank())
-
-  winter + spring + summer + fall +
-    plot_layout(nrow = 2, ncol = 2, guides = "collect") &
-    theme(legend.position = "bottom",
-          axis.title = element_blank(),
-          plot.title = element_blank())
+          axis.text.y = element_blank()) +
+    ggtitle(paste("d)", months[4]))
+  
+  res <- (winter + spring + summer + fall +
+            plot_layout(nrow = 2, ncol = 2, guides = "collect") &
+            theme(legend.position = "bottom",
+                  axis.title = element_blank())) +
+    plot_annotation(paste(v, year, scenario, "gridded results"))
+  
+  pdf(pred_path(v, year, scenario, "gridded_plot_cropped.pdf"))
+  print(res)
+  dev.off()
 } 
 
 #' ALTER THIS METHOD TO CHANGE PLOT APPEARANCE
@@ -91,16 +111,19 @@ save_plots_gridded <- function(plots, v, year, scenario, filename,
 #' @param cropped boolean, is this plot cropped?
 #' @param downsample int, downsample factor 
 #' @return plot of desired month 
-plot_month <- function (preds, title, diff, cropped, downsample) {
+plot_month <- function (preds, title, diff, cropped, downsample, 
+                        cex_override = NULL) {
   
   if (cropped) {
     xlim <- c(-77.0, -42.5) 
     ylim <- c(36.5,  56.7)
-    cex <- c(.5, .5, .8, 1)[downsample+1]
+    cex <- c(.5, .8, 1.3, 2)[downsample+1]
   } else {
     xlim <- ylim <- NULL 
     cex <- c(.17, .17, .3, .4)[downsample+1]
   }
+  
+  if (!is.null(cex_override)) {cex <- cex_override}
   
   # ggplot base
   plot_base <- ggplot(preds, aes(x = lon, y = lat, col = .pred_1)) +
@@ -111,7 +134,7 @@ plot_month <- function (preds, title, diff, cropped, downsample) {
     theme(panel.grid.minor = element_blank(),
           panel.grid.major = element_blank(),
           legend.position = "bottom") +
-    labs(x = "Latitude", y = "Longtitude", color = NULL) +
+    labs(x = "Latitude", y = "Longtitude", color = "Patch probability") +
     ggtitle(title)
   
   # desired color scheme depends on whether this is raw or comparison plot
@@ -143,13 +166,15 @@ plot_month <- function (preds, title, diff, cropped, downsample) {
 get_plots <- function(v = "v3.00", 
                       plot_scenarios = 1:5,
                       comparison_scenario = 5, 
+                      save_months = 1:12,
                       downsample = c(0, 1, 2, 3)[1]) {
   
   # retrieving comparison predictions 
   compare_spec <- climate_table(comparison_scenario)
   comparison_preds <- read_preds(v, 
                                  year = compare_spec$year,
-                                 scenario = compare_spec$scenario)
+                                 scenario = compare_spec$scenario,
+                                 save_months = save_months)
   
   # helper function that processes each climate situation
   run_scenario <- function(year, scenario) {
@@ -198,7 +223,7 @@ get_plots <- function(v = "v3.00",
       comparison_list <- NULL
     } else {
       
-      preds_list <- read_preds(v, year, scenario)
+      preds_list <- read_preds(v, year, scenario, save_months = save_months)
       comparison_list <- comparison_preds
     }
     
@@ -234,6 +259,13 @@ get_threshold_plots <- function(v = "v3.00",
                                  year = compare_spec$year,
                                  scenario = compare_spec$scenario)
   
+  if (FALSE) {
+    comparison_preds <- get_combined_preds(vcfin = "v4.02.03", vchyp = "v4.04.01", 
+                                           year = NULL, scenario = "PRESENT")
+    preds_list <- get_combined_preds(vcfin = "v4.02.03", vchyp = "v4.04.01", 
+                                     year = 2075, scenario = "RCP85")
+  }
+  
   # naming factor levels 
   feedstatus <- list(FALSE_FALSE = "No Feed",
                      FALSE_TRUE = "New Feed", 
@@ -256,7 +288,7 @@ get_threshold_plots <- function(v = "v3.00",
         if (cropped) {
           xlim <- c(-77.0, -42.5) 
           ylim <- c(36.5,  56.7)
-          cex <- c(.5, .5, .8, 1)[downsample+1]
+          cex <- c(.5, .8, 1.3, 2)[downsample+1]
         } else {
           xlim <- ylim <- NULL 
           cex <- c(.17, .17, .3, .4)[downsample+1]
@@ -288,6 +320,9 @@ get_threshold_plots <- function(v = "v3.00",
                          threshold, 
                          ifelse(cropped, "_cropped", ""), 
                          ".pdf")
+      if (FALSE) {
+        filename = "COMBINEDLIST.pdf"
+      }
       # saving to pdf
       plot_data_list |>
         imap(~feed_plot(.x, .y, cropped)) |>
@@ -318,11 +353,120 @@ get_threshold_plots <- function(v = "v3.00",
     mutate(success = run_scenario(year, scenario))
 }
 
+gridded_threshold <- function(v = "v4.02.02", year, scenario,
+                              comparison_scenario = 5,
+                              threshold = .5,
+                              downsample = c(0, 1, 2, 3)[3],
+                              months = c("Jan", "Apr", "Jul", "Oct"), 
+                              cex_override = .6) {
+  
+  # try and read in current predictions
+  preds_list <- read_preds(v, year, scenario)[months]
+  # retrieving comparison predictions 
+  compare_spec <- climate_table(comparison_scenario)
+  comparison_preds <- read_preds(v, 
+                                 year = compare_spec$year,
+                                 scenario = compare_spec$scenario)[months]
+  if (FALSE) {
+  comparison_preds <- get_combined_preds(vcfin = "v4.02.03", vchyp = "v4.04.01", 
+                                   year = NULL, scenario = "PRESENT")
+  preds_list <- get_combined_preds(vcfin = "v4.02.03", vchyp = "v4.04.01", 
+                                   year = 2075, scenario = "RCP85")
+  }
+  plot_data_list <-  
+    purrr::map2(preds_list, 
+                comparison_preds, 
+                ~mutate(.x, 
+                        REL_PRESENCE = paste0(.y$.pred_1 > threshold, 
+                                              "_", 
+                                              .x$.pred_1 > threshold) |>
+                          factor(levels = c("FALSE_FALSE", "FALSE_TRUE", 
+                                            "TRUE_FALSE", "TRUE_TRUE"))))
+  
+  # naming factor levels 
+  feedstatus <- list(FALSE_FALSE = "No Feed",
+                     FALSE_TRUE = "New Feed", 
+                     TRUE_FALSE = "Lost Feed", 
+                     TRUE_TRUE = "Feed")
+  # palette for colors 
+  pal <- c(FALSE_FALSE = "gray90",
+           FALSE_TRUE = "red3", 
+           TRUE_FALSE = "dodgerblue2", 
+           TRUE_TRUE = "goldenrod1")
+  
+  # helper to generate plot
+  feed_plot <- function (climate_data, mon_name) {
+    xlim <- c(-77.0, -42.5) 
+    ylim <- c(36.5,  56.7)
+    cex <- cex_override
+    
+    # generating plot
+    ggplot(climate_data, aes(x = lon, y = lat, col = REL_PRESENCE)) +
+      geom_point(cex = cex, pch = 15) +
+      scale_color_manual(labels = feedstatus,
+                         values = pal,
+                         drop = FALSE) + 
+      coord_quickmap(xlim = xlim,
+                     ylim = ylim) + 
+      theme_bw() +
+      theme(panel.grid.minor = element_blank(),
+            panel.grid.major = element_blank(),
+            legend.position = "bottom") +
+      guides(colour = guide_legend(override.aes = list(size=2))) +
+      labs(x = "Latitude", y = "Longtitude", color = "Feed Status") +
+      ggtitle(mon_name)
+  }
+  
+  #####
+  
+  test_plots <- plot_data_list |>
+    imap(~feed_plot(.x, .y))
+  
+  winter <- test_plots[[months[1]]] + 
+    theme(axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank()) +
+    ggtitle(paste("a)", months[1]))
+  
+  spring <- test_plots[[months[2]]] + 
+    theme(axis.ticks = element_blank(), 
+          axis.text = element_blank()) +
+    ggtitle(paste("b)", months[2]))
+  
+  summer <- test_plots[[months[3]]] +
+    ggtitle(paste("c)", months[3]))
+  
+  fall <- test_plots[[months[4]]] +
+    theme(axis.ticks.y = element_blank(), 
+          axis.text.y = element_blank()) +
+    ggtitle(paste("d)", months[4]))
+  
+  res <- (winter + spring + summer + fall +
+            plot_layout(nrow = 2, ncol = 2, guides = "collect") +
+            plot_annotation(paste(v, year, scenario, 
+                                  "(Threshold: ", threshold, ")"))) &
+    theme(legend.position = "bottom",
+          axis.title = element_blank())
+  
+  if (FALSE) {
+  res <- (winter + spring + summer + fall +
+            plot_layout(nrow = 2, ncol = 2, guides = "collect") +
+            plot_annotation("COMBINED")) &
+    theme(legend.position = "bottom",
+          axis.title = element_blank())
+  }
+  
+  pdf(pred_path(v, year, scenario, #"COMBINEDTHRESHOLD.pdf"))
+                paste0("gridThreshold_", threshold, ".pdf")))
+  print(res)
+  dev.off()
+}
+
 compare_versions <- function(old_v,
                              new_v, 
                              year = NA, 
                              scenario = "PRESENT",
-                             downsample = c(0, 1, 2, 3)[3]) {
+                             downsample = c(0, 1, 2, 3)[3],
+                             cropped = FALSE) {
   
   old_v_preds <- read_preds(old_v, year, scenario)
   new_v_preds <- read_preds(new_v, year, scenario)
@@ -334,8 +478,43 @@ compare_versions <- function(old_v,
   plottable_preds |>
     purrr::imap(~plot_month(.x, 
                             title = paste(new_v, "vs.", old_v, "-", .y),
-                            diff = TRUE, cropped = FALSE, downsample = 3)) |>
-    save_plots(new_v, year, scenario, paste0(new_v, "_vs_", old_v, ".pdf"))
+                            diff = TRUE, cropped = cropped, downsample = 3)) |>
+    save_plots(new_v, year, scenario, 
+               paste0(new_v, "_vs_", old_v, "_", 
+                      ifelse(cropped, "cropped", ""), ".pdf"))
+}
+
+combined_preds <- function(vcfin, vchyp,
+                           downsample = 2,
+                           year = 2075, 
+                           scenario = "RCP85"){
+  
+  vcfin_preds <- read_preds(vcfin, year, scenario)
+  vchyp_preds <- read_preds(vchyp, year, scenario)
+  
+  combined_preds <- 
+    purrr::map2(vcfin_preds, vchyp_preds,
+                ~mutate(.x, .pred_1 = 1 - (.x$.pred_0 * .y$.pred_0)))
+  
+  months <- combined_preds |>
+    imap(~plot_month(.x, 
+                     paste("Combined", vcfin, "and", vchyp, 
+                           year, scenario, "-", .y),
+                     diff = FALSE, cropped = FALSE, downsample = downsample))
+  
+  save_plots(months, vcfin, year, scenario, "combinedpreds.pdf",
+             verbose = TRUE)
+}
+
+get_combined_preds <- function(vcfin, vchyp,
+                           year = 2075, 
+                           scenario = "RCP85"){
+  
+  vcfin_preds <- read_preds(vcfin, year, scenario)
+  vchyp_preds <- read_preds(vchyp, year, scenario)
+  
+  purrr::map2(vcfin_preds, vchyp_preds,
+              ~mutate(.x, .pred_1 = 1 - (.x$.pred_0 * .y$.pred_0)))
 }
 
 # old code
