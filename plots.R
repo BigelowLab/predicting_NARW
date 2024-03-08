@@ -17,337 +17,350 @@ read_preds <- function(v, year, scenario) {
   folder <- pred_path(v, year, scenario)
   # if directory does not exist, return false
   if(!dir.exists(folder)) {
-    message(paste("Predictions for", year, scenario, 
-                  "don't exist. Skipping plots."))
-    return(NULL)
+    stop(paste("Predictions for", year, scenario, 
+               "don't exist. Skipping plots."))
   }
   
-  # retrieving list of all prediction files in a prediction folder
-  pred_files <- list.files(folder)
-  pred_files <- pred_files[startsWith(pred_files, "predictions")]
+  wd <- getwd()
+  setwd(folder)
   
-  # retrieving data from each file
-  data.frame(file = pred_files) |>
-    rowwise() |>
-    transmute(data = list(readr::read_csv(file.path(folder, file), 
-                                          col_types = readr::cols()) |> 
-                            st_as_sf(coords = c("lon", "lat"), crs = 4326)),
-              # use NA for month if not monthly data
-              mon = ifelse("month" %in% colnames(data), 
-                           data$month[[1]],
-                           NA)) |>
-    # sorting in ascending month order 
-    arrange(mon) 
-}
-
-#' Generates a plot of the desired data 
-#' 
-#' @param climate_data df, the data to be plotted
-#' @param v chr, the version to be plotted
-#' @param mon int, the month of the data being plotted - NA if annual data
-#' @param year int, the year of the given data
-#' @param scenario chr, the scenario for the given data 
-#' @param cropped lgl, whether the plot is cropped to the GoM/BoF area
-#' @param difference lgl, whether the plot depicts difference from present or
-#'   raw probabilities.
-#' @param downsample int, the resolution of the plot
-#' @return a plot
-create_plot <- function (climate_data, 
-                         v,
-                         mon = NA,
-                         year=c(2055, 2075)[1], 
-                         scenario=c("RCP45", "RCP85")[1], 
-                         cropped = c(TRUE, FALSE)[1], 
-                         difference = c(TRUE, FALSE)[2],
-                         downsample = c(0, 1, 2, 3)[1]) {
-  
-  cropped_cex_vec <- c(.5, .5, .8, 1)
-  uncropped_cex_vec <- c(.17, .17, .3, .4)
-  
-  # generating title 
-  scenario_string <- ifelse((scenario != "PRESENT"), 
-                            paste(scenario, year), 
-                            scenario)
-  desc_string <- ifelse(difference, 
-                        "Change in Calanus Prescence Probability",
-                        "Calanus Presence Probability")
-  main <- paste(v, scenario_string, desc_string, as_month(mon))
-  
-  
-  # cropped plot has set bounds and larger point sizes
-  if (cropped) {
-    xlim <- c(-77.0, -42.5) 
-    ylim <- c(36.5,  56.7)
-    cex <- cropped_cex_vec[downsample+1]
-  } else {
-    xlim <- ylim <- NULL 
-    cex <- uncropped_cex_vec[downsample+1]
-  }
-  
-  # generating separate color/scale formatting for difference plots
-  ncol <- 31
-  if (difference) {
-    breaks <- seq(-.8, .8, length.out = ncol+1)
-    pal <- colorRampPalette(c("midnightblue", #cool end
-                              "dodgerblue3",
-                              "deepskyblue1",
-                              "gray94", 
-                              "goldenrod1",
-                              "darkorange1", 
-                              "orangered3"))(ncol) #warm end
-  } else { #raw values
-    breaks <- seq(0, 1, length.out = ncol+1)
-    pal <- inferno(ncol)
-  }
-  
-  # generating plot
-  plot(climate_data['.pred_1'], 
-       xlim = xlim,
-       ylim = ylim,
-       breaks = breaks,
-       pal = pal,
-       pch=15,
-       cex=cex,
-       axes=TRUE,
-       main = main)
-}
-
-#' Generates and saves a cropped and uncropped plot of the desired data
-#' 
-#' @param df df, climate data to be plotted and saved with 
-#'   "data" and "mon" columns
-#' @param v chr, the version that generated the data
-#' @param scenario chr, the climate scenario being plotted
-#' @param difference lgl, whether the data is change from present or raw values
-#' @param downsample int, the resolution of the plot
-#' @return the original data frame. Also creates uncropped and cropped plots
-#'   of the data and saves to file. 
-plot_climate <- function(df, v, year, scenario, difference, downsample) {
-  
-  # helper function
-  plot_pred_wrapper <- function(row) {
-    create_plot(row$data, v, row$mon, year, 
-                scenario, cropped, difference, downsample)
-  }
-  
-  for (cropped in c(TRUE, FALSE)) {
-    # generating plot path name
-    plot_path <- paste(c(pred_path(v, year, scenario, "plot"),
-                         ifelse(cropped, "_cropped", ""),
-                         ifelse(difference, "_diff", ""), 
-                         ".pdf"), 
-                       collapse = "")
+  # helper method that retrieves data for a month
+  read_month <- function(mon) {
+    filename <- paste0("predictions", mon, ".csv.gz")
     
-    #opening a pdf and plotting each month
-    pdf(plot_path)
-    apply(df, 1, plot_pred_wrapper)
-    dev.off()
+    if (file.exists(filename)) {
+      readr::read_csv(filename, col_types = readr::cols())
+    } else {
+      NULL
+    }
   }
+  
+  # constructing list of prediction data named by month
+  preds <- 1:12 |>
+    lapply(read_month) |>
+    setNames(mon_names()) |>
+    purrr::discard(is.null)
+  
+  setwd(wd)
+  preds
+}
+
+#' ALTER THIS METHOD FOR ALTERNATIVE PLOT ARRANGEMENT
+#' 
+#' @param plots list, plot objects
+#' @param path chr, file path to save to 
+save_plots <- function(plots, v, year, scenario, filename) {
+  pdf(pred_path(v, year, scenario, filename))
+  print(plots)
+  dev.off()
   
   TRUE
 }
 
+# grid 2x2 of plots
+# INCOMPLETE: troubleshooting labels
+save_plots_gridded <- function(plots, v, year, scenario, filename,
+                               months = c(1, 4, 7, 10)) {
+  
+  winter <- test_plots[[months[[1]]]] + 
+    theme(axis.ticks.x = element_blank(), 
+          axis.text.x = element_blank())
+  
+  spring <- test_plots[[months[[2]]]] + 
+    theme(axis.ticks = element_blank(), 
+          axis.text = element_blank())
+  
+  summer <- test_plots[[months[[3]]]]
+  
+  fall <- test_plots[[months[[4]]]] +
+    theme(axis.ticks.y = element_blank(), 
+          axis.text.y = element_blank())
+
+  winter + spring + summer + fall +
+    plot_layout(nrow = 2, ncol = 2, guides = "collect") &
+    theme(legend.position = "bottom",
+          axis.title = element_blank(),
+          plot.title = element_blank())
+} 
+
+#' ALTER THIS METHOD TO CHANGE PLOT APPEARANCE
+#' 
+#' @param preds df, data to plot
+#' @param title chr, the name of the plot
+#' @param diff boolean, is this plot a difference plot?
+#' @param cropped boolean, is this plot cropped?
+#' @param downsample int, downsample factor 
+#' @return plot of desired month 
+plot_month <- function (preds, title, diff, cropped, downsample) {
+  
+  if (cropped) {
+    xlim <- c(-77.0, -42.5) 
+    ylim <- c(36.5,  56.7)
+    cex <- c(.5, .5, .8, 1)[downsample+1]
+  } else {
+    xlim <- ylim <- NULL 
+    cex <- c(.17, .17, .3, .4)[downsample+1]
+  }
+  
+  # ggplot base
+  plot_base <- ggplot(preds, aes(x = lon, y = lat, col = .pred_1)) +
+    geom_point(cex = cex, pch = 15) +
+    coord_quickmap(xlim = xlim,
+                   ylim = ylim) + 
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank(),
+          legend.position = "bottom") +
+    labs(x = "Latitude", y = "Longtitude", color = NULL) +
+    ggtitle(title)
+  
+  # desired color scheme depends on whether this is raw or comparison plot
+  if (diff) {
+    plot <- plot_base +
+      scale_color_gradientn(limits = c(-.9, .9),
+                            colors = c("midnightblue",
+                                       "midnightblue",
+                                       "dodgerblue3",
+                                       "deepskyblue1",
+                                       "gray94", 
+                                       "goldenrod1",
+                                       "darkorange1",
+                                       "orangered3",
+                                       "orangered3"),
+                            na.value = "white") +
+      labs(color = "Change in probability")
+  } else {
+    plot <- plot_base +
+      scale_color_viridis(option = "inferno", limits = c(0, 1))
+  }
+  
+  plot
+}
+
 ### MAIN FUNCTION ##########
 
-#' Generates plots for a version
-#' 
-#' @param v, chr, the version to be plotted
-#' @param plot_scenarios numeric vector, a list of integers btwn 1 and 5 
-#'   indicating which climate scenarios should be plotted. If predictions
-#'   don't exist for a desired scenario, a message is displayed and those
-#'   plots are skipped. 
-#' @return tibble of climate scenarios and whether plotting executed 
-#'   successfully 
-get_plots <- function(v = "v1.00", 
+# goal: produce 4 plots per desired scenario (2 for present day)
+get_plots <- function(v = "v3.00", 
                       plot_scenarios = 1:5,
+                      comparison_scenario = 5, 
                       downsample = c(0, 1, 2, 3)[1]) {
   
-  # retrieving present prediction
-  present <- read_preds(v, scenario = "PRESENT")
-  if(is.null(present)) {stop("Have not yet generated present predictions")}
+  # retrieving comparison predictions 
+  compare_spec <- climate_table(comparison_scenario)
+  comparison_preds <- read_preds(v, 
+                                 year = compare_spec$year,
+                                 scenario = compare_spec$scenario)
   
   # helper function that processes each climate situation
-  get_plots_help <- function(year, scenario) {
+  run_scenario <- function(year, scenario) {
     
-    if (scenario == "PRESENT") {
-      plot_climate(present, v, year, scenario, FALSE, downsample)
-      return(TRUE)
+    run_crop_tf <- function(plot_data_list, diff) {
+      
+      plot_month_wrapper <- function (preds, mon_name, cropped) {
+        
+        # generating title 
+        scenario_string <- ifelse((scenario != "PRESENT"), 
+                                  paste(scenario, year), 
+                                  scenario)
+        desc_string <- ifelse(diff, 
+                              "Change in Calanus Prescence Probability",
+                              "Calanus Presence Probability")
+        title <- paste(v, scenario_string, desc_string, "-", mon_name)
+        
+        plot_month(preds, 
+                   title = title, 
+                   diff = diff, 
+                   cropped = cropped, 
+                   downsample = downsample)
+      }
+      
+      for (cropped in c(TRUE, FALSE)) {
+        # generating save name
+        filename <- paste0("plot",
+                           ifelse(cropped, "_cropped", ""),
+                           ifelse(diff, 
+                                  paste0("_diff", comparison_scenario), ""), 
+                           ".pdf")
+        
+        # creating a list of monthly plots and saving 
+        plot_data_list |>
+          purrr::imap(~plot_month_wrapper(.x, .y, cropped)) |>
+          save_plots(v, year, scenario, filename)
+      }
     }
     
-    # try and read in current predictions
-    preds <- read_preds(v, year, scenario)
-    if(is.null(preds)) { return(FALSE) }
+    # plotting comparison scenario
+    if ((compare_spec$year == year | 
+         (is.na(compare_spec$year) & is.na(year))) && 
+        compare_spec$scenario == scenario) {
+      
+      preds_list <- comparison_preds
+      comparison_list <- NULL
+    } else {
+      
+      preds_list <- read_preds(v, year, scenario)
+      comparison_list <- comparison_preds
+    }
     
-    # plot raw predictions
-    preds |>
-       plot_climate(v, year, scenario, difference = FALSE, downsample)
+    # running for original 
+    preds_list |>
+      run_crop_tf(diff = FALSE)
     
-    # transforming data into "change in probability" and plotting
-    preds |>
-      bind_cols(select(present, data)) |> 
-      transmute(mon,
-                data = list(mutate(data...1, # current data 
-                                   .pred_1 = .pred_1 - data...3$.pred_1))) |>
-      plot_climate(v, year, scenario, difference = TRUE, downsample)
+    # for comparison plots, subtract comparison data from original
+    if (!is.null(comparison_list)) {
+      purrr::map2(preds_list, 
+                  comparison_list, 
+                  ~mutate(.x, .pred_1 = .pred_1 - .y$.pred_1)) |>
+        run_crop_tf(diff = TRUE)
+    }
     
     TRUE
   }
   
   # plotting predictions
   climate_table(plot_scenarios) |>
-    mutate(success = get_plots_help(year, scenario))
+    mutate(success = run_scenario(year, scenario))
 }
 
-feeding_habitats <- function(v = "v1.00", 
-                             plot_scenarios = 1:4,
-                             threshold = .5,
-                             downsample = c(0, 1, 2, 3)[3],
-                             verbose = TRUE) {
+get_threshold_plots <- function(v = "v3.00", 
+                                plot_scenarios = 1:4,
+                                threshold = .5,
+                                comparison_scenario = 5,
+                                downsample = c(0, 1, 2, 3)[3]) {
   
-  # retrieving present prediction
-  present <- read_preds(v, scenario = "PRESENT")
-  if(is.null(present)) {stop("Have not yet generated present predictions")}
-  present <- present |>
-    transmute(pdata = list(transmute(data, PFEED = .pred_1 >= threshold)))
+  # retrieving comparison predictions 
+  compare_spec <- climate_table(comparison_scenario)
+  comparison_preds <- read_preds(v, 
+                                 year = compare_spec$year,
+                                 scenario = compare_spec$scenario)
   
   # naming factor levels 
-  feedstatus <- list(FALSEFALSE = "No Feed",
-                     FALSETRUE = "New Feed", 
-                     TRUEFALSE = "Lost Feed", 
-                     TRUETRUE = "Feed")
+  feedstatus <- list(FALSE_FALSE = "No Feed",
+                     FALSE_TRUE = "New Feed", 
+                     TRUE_FALSE = "Lost Feed", 
+                     TRUE_TRUE = "Feed")
+  # palette for colors 
+  pal <- c(FALSE_FALSE = "gray90",
+           FALSE_TRUE = "red3", 
+           TRUE_FALSE = "dodgerblue2", 
+           TRUE_TRUE = "goldenrod1")
   
   # helper function that generates data for each scenario and generates plots
-  get_plots_help <- function(year, scenario) {
+  run_scenario <- function(year, scenario) {
     
     # helper to create set of monthly plots and save to file
-    save_plots <- function(cropped) {
+    run_cropped <- function(cropped) {
       
       # helper to generate plot
-      feed_plot <- function (climate_data, 
-                             mon) {
-        
-        cropped_cex_vec <- c(.5, .5, 1, 1.3)
-        uncropped_cex_vec <- c(.17, .17, .25, .35)
-        pal <- c("No Feed" = "gray90", 
-                 "Feed" = "goldenrod1",
-                 "New Feed" = "orangered3",
-                 "Lost Feed" = "dodgerblue3")
+      feed_plot <- function (climate_data, mon_name, cropped) {
+        if (cropped) {
+          xlim <- c(-77.0, -42.5) 
+          ylim <- c(36.5,  56.7)
+          cex <- c(.5, .5, .8, 1)[downsample+1]
+        } else {
+          xlim <- ylim <- NULL 
+          cex <- c(.17, .17, .3, .4)[downsample+1]
+        }
         
         # generating title 
         main <- paste(v, scenario, year, 
-                      "Feeding Habitat Change", as_month(mon),
+                      "Feeding Habitat Change -", mon_name,
                       paste0("(Threshold: ", threshold, ")"))
         
-        # cropped plot has set bounds and larger point sizes
-        cex <- ifelse(cropped,
-                      cropped_cex_vec[downsample+1],
-                      uncropped_cex_vec[downsample + 1])
-        
         # generating plot
-        tplot <- ggplot(climate_data) +
+        ggplot(climate_data, aes(x = lon, y = lat, col = REL_PRESENCE)) +
+          geom_point(cex = cex, pch = 15) +
+          scale_color_manual(labels = feedstatus,
+                             values = pal) + 
+          coord_quickmap(xlim = xlim,
+                         ylim = ylim) + 
           theme_bw() +
-          geom_sf(aes(col = FEED), cex = cex, pch = 15) +
-          ggtitle(main) + 
-          scale_color_manual(values = pal) + 
           theme(panel.grid.minor = element_blank(),
                 panel.grid.major = element_blank(),
                 legend.position = "bottom") +
           guides(colour = guide_legend(override.aes = list(size=2))) +
-          labs(col = "Feed Status")
-        
-        if (cropped) {
-          tplot <- tplot +
-            xlim(-77.0, -42.5) +
-            ylim(36.5,  56.7)
-        }
-        
-        tplot
+          labs(x = "Latitude", y = "Longtitude", color = "Feed Status") +
+          ggtitle(main)
       }
-      
-      if (verbose) {message(paste("Plotting", year, scenario, 
-                                  "cropped =", cropped))}
       
       # naming save file
       filename <- paste0("feedplot", 
                          threshold, 
                          ifelse(cropped, "_cropped", ""), 
                          ".pdf")
-      # opening pdf
-      pdf(pred_path(v, year, scenario, filename))
-      apply(preds, 1, 
-            function(x) {print(feed_plot(x$data, x$mon))})
-      dev.off()
+      # saving to pdf
+      plot_data_list |>
+        imap(~feed_plot(.x, .y, cropped)) |>
+        save_plots(v, year, scenario, filename)
       
       TRUE
     }
     
     # try and read in current predictions
-    preds <- read_preds(v, year, scenario)
-    if(is.null(preds)) { return(FALSE) }
-    preds <- preds |>
-      mutate(data = list(transmute(data, FFEED = .pred_1 >= threshold))) |>
-      bind_cols(present) |>
-      rowwise() |>
-      transmute(mon, 
-                data = data |>
-                  bind_cols(PFEED = pdata$PFEED) |>
-                  rowwise() |>
-                  transmute(FEED = feedstatus[[paste0(PFEED, FFEED)]]) |>
-                  list())
+    preds_list <- read_preds(v, year, scenario)
+    
+    plot_data_list <-  
+      purrr::map2(preds_list, 
+                  comparison_preds, 
+                  ~mutate(.x, 
+                          REL_PRESENCE = paste0(.y$.pred_1 > threshold,
+                                                "_",
+                                                .x$.pred_1 > threshold)))
     
     c(TRUE, FALSE) |>
-      lapply(save_plots)
+      lapply(run_cropped)
     
     TRUE
   }
   
   # plotting predictions
   climate_table(plot_scenarios) |>
-    mutate(success = get_plots_help(year, scenario))
+    mutate(success = run_scenario(year, scenario))
 }
 
-##############################################
+compare_versions <- function(old_v,
+                             new_v, 
+                             year = NA, 
+                             scenario = "PRESENT",
+                             downsample = c(0, 1, 2, 3)[3]) {
+  
+  old_v_preds <- read_preds(old_v, year, scenario)
+  new_v_preds <- read_preds(new_v, year, scenario)
+  
+  plottable_preds <- purrr::map2(new_v_preds, 
+                                 old_v_preds, 
+                                 ~mutate(.x, .pred_1 = .pred_1 - .y$.pred_1))
+  
+  plottable_preds |>
+    purrr::imap(~plot_month(.x, 
+                            title = paste(new_v, "vs.", old_v, "-", .y),
+                            diff = TRUE, cropped = FALSE, downsample = 3)) |>
+    save_plots(new_v, year, scenario, paste0(new_v, "_vs_", old_v, ".pdf"))
+}
 
-# old code that purely processed annual data
+# old code
 if (FALSE) {
-  #' Generates and saves a plot of the desired data to file.
-  #' 
-  #' @param v the version to be plotted
-  #' @param climate_data the data to be plotted
-  #' @param year the year of the given data
-  #' @param scenario the scenario for the given data 
-  #' @param cropped whether the plot is cropped to the Gulf of Maine
-  #' @param difference whether the plot depicts difference from present or
-  #'   raw probabilities.
-  #' @return a plot saved as a pdf to the file system.
-  plot_pred <- function (v,
-                         climate_data, 
-                         year=c(2055, 2075)[1], 
-                         scenario=c("RCP45", "RCP85")[1], 
-                         cropped = c(TRUE, FALSE)[1], 
-                         difference = c(TRUE, FALSE)[2]) {
-    # generating plot name
-    plot_path <- pred_path(v, year, scenario, "plot")
-    if (cropped) {plot_path <- paste0(plot_path, "_cropped")}
-    if (difference) {plot_path <- paste0(plot_path, "_diff")}
-    plot_path <- paste0(plot_path, ".pdf")
+  # non-ggplot implementation of plot_month
+  plot_month <- function (mon_pred, title, diff, cropped, downsample) {
+    
+    # converting to sf
+    mon_pred <- mon_pred |>
+      st_as_sf(coords = c("lon", "lat"), crs = 4326)
     
     # cropped plot has set bounds and larger point sizes
     if (cropped) {
       xlim <- c(-77.0, -42.5) 
       ylim <- c(36.5,  56.7)
-      cex <- .5
+      cex <- c(.5, .5, .8, 1)[downsample+1]
     } else {
       xlim <- ylim <- NULL 
-      cex <- .2
+      cex <- c(.17, .17, .3, .4)[downsample+1]
     }
     
-    title <- ifelse((scenario != "PRESENT"), paste(scenario, year), scenario)
-    
-    # generating separate titles and color schemes for difference plots
+    # generating separate color/scale formatting for difference plots
     ncol <- 31
-    if (difference) {
-      breaks <- seq(-.5, .5, length.out = ncol+1)
+    if (diff) {
+      breaks <- seq(-.8, .8, length.out = ncol+1)
       pal <- colorRampPalette(c("midnightblue", #cool end
                                 "dodgerblue3",
                                 "deepskyblue1",
@@ -355,97 +368,20 @@ if (FALSE) {
                                 "goldenrod1",
                                 "darkorange1", 
                                 "orangered3"))(ncol) #warm end
-      main <- paste(v, title, "Change in Calanus Presence Probability")
     } else { #raw values
       breaks <- seq(0, 1, length.out = ncol+1)
       pal <- inferno(ncol)
-      main <- paste(v, title, "Calanus Presence Probability")
     }
     
     # generating plot
-    pdf(plot_path)
-    plot(climate_data['.pred_1'], 
+    plot(mon_pred['.pred_1'], 
          xlim = xlim,
          ylim = ylim,
          breaks = breaks,
          pal = pal,
-         pch=15,
-         cex=cex,
-         axes=TRUE,
-         main = main)
-    dev.off()
-  }
-  
-  test2 <- brickman::read_brickman(scenario="PRESENT", 
-                                  vars = c("Bathy_depth"), 
-                                  interval = "ann", 
-                                  form = "sf")
-  
-  #' Generates four plots for a given climate situation.
-  #'
-  #' @param version the version being plotted
-  #' @param year the climate year
-  #' @param scenario the climate scenario 
-  #' @param climate_pred the data to be plotted 
-  #' @param present_pred present climate data to use for comparison
-  #' @return saves four plots (all combinations of cropped and difference) 
-  #'   as pdfs and returns TRUE if code ran without error
-  plot_climate <- function(version, year, scenario, climate_pred, present_pred) {
-    # helper function -- given difference and climate data, calls plot_pred
-    iterate_cropped <- function(difference, climate_data) {
-      for (cropped in c(TRUE, FALSE)) {
-        plot_pred(version, 
-                  climate_data, 
-                  year, 
-                  scenario, 
-                  cropped = cropped, 
-                  difference = difference)
-      }
-    }
-    
-    #iterate_cropped(FALSE, climate_pred)
-    if (scenario != "PRESENT") {
-      iterate_cropped(TRUE, mutate(climate_pred, 
-                                   .pred_1 = .pred_1 - present_pred$.pred_1))
-    }
-    return(TRUE)
-  }
-  
-  ### MAIN FUNCTION
-  
-  #' Generates plots for the given model predictions
-  #' 
-  #' @param version the version to be plotted
-  #' @param pred_table a table of predictions to be plotted. If NULL, predictions
-  #'   are read directly from file system. 
-  #' @return saves plots to the file system and returns TRUE if code ran without
-  #'  erroring
-  get_plots <- function(version="v1.00", pred_table = NULL) {
-    #generating table of prediction data if one isn't provided
-    pred_table <- climate_table() |> 
-      mutate(climate_pred = list(readr::read_csv(
-        pred_path(version, year, scenario, "predictions.csv.gz")) |>
-          st_as_sf(coords = c("lon", "lat"), crs = 4326)))
-
-    #retrieving present climate predictions
-    present_pred <- tail(pred_table, n = 1)$climate_pred[[1]]
-    #plotting predictions
-    pred_table |>
-      mutate(plotted = plot_climate(version, 
-                                    year, 
-                                    scenario, 
-                                    climate_pred, 
-                                    present_pred))
-    return(TRUE)
+         pch = 15,
+         cex = cex,
+         axes = TRUE,
+         main = title)
   }
 }
-
-
-
-
-
-
-
-
-
-

@@ -1,24 +1,24 @@
-source("setup.R")
-
-v <- "v2.20"
+v <- "v3.11.01"
 interval <- "mon"
 overwrite <- FALSE
 
 # training data 
 strata = "patch"
-brickman_data <- list(interval = interval,
-                      vars = c("Bathy_depth", "MLD", "SST", "SSS", 
-                               "Tbtm", "Sbtm", "U", "V"),
-                      transform = "vel = sqrt(U^2 + V^2)")
-
-species_data <- list(source = c("ecomon", "azmp"),
-                     species = "C. Hyperboreus", 
-                     staged = FALSE,
-                     threshold = 5000,
-                     date_range = list(start =  "1990-01-01",
-                                       end = "2015-12-31"))
+brickman_data_config <- list(interval = interval,
+                             vars = c("Bathy_depth", "MLD", "SST", "SSS", 
+                                      "Tbtm", "Sbtm", "U", "V"),
+                             transform = c("Vel = sqrt(U^2 + V^2)",
+                                           "Bathy_depth = log10(Bathy_depth + 1)",
+                                           "step_normalize()")) 
+species_data_config <- list(source = c("azmp"), #"ecomon", 
+                            species = "C. Hyperboreus", 
+                            staged = FALSE,
+                            threshold = 2000,
+                            date_range = list(start =  "1990-01-01",
+                                              end = "2015-12-31"),
+                            vertical_correction = FALSE)
 # model
-seed <- 412
+seed <- 504
 model_split <- FALSE
 
 # engines
@@ -29,19 +29,25 @@ gam <- list(name = "GAM",
             k = c(18, 24, 25, 18, 18, 23, 20))
 
 lg <- list(name = "Logistic Regression", 
-           engine = "glm")
+           engine = "glm", 
+           family = "binomial(link = logit)")
 
-rf <- list(name = "random forest", 
-           trees = 1000, 
-           engine = "ranger")
+rf <- list(name = "Random Forest", 
+           engine = "ranger",
+           trees = 500,
+           mtry = 5, 
+           min_n = 33, 
+           importance = "impurity")
 
 brt <- list(name = "Boosted Regression Tree", 
             engine = "xgboost", 
-            trees = 25.0,
-            tree_depth = 7.0,
-            learn_rate = 0.3,
-            min_n = 1.0,
-            loss_reduction = 0.04)
+            trees = 1000,
+            tree_depth = 6,
+            learn_rate = 0.0745,
+            min_n = 26,
+            mtry = 5,
+            sample_size = .597,
+            loss_reduction = 0.00568)
 
 mlp <- list(name = "MLP Neural Network",
             engine = "keras",
@@ -49,21 +55,21 @@ mlp <- list(name = "MLP Neural Network",
             dropout = .75, 
             epochs = 25)
 
-model_list <- list(brt)
+model_types <- list(brt)
 
 ### ASSEMBLY #############################################
 
-training_data <- list(strata = strata, 
-                      species_data = species_data, 
-                      brickman_data = brickman_data)
+training_data_config <- list(strata = strata, 
+                             species_data = species_data_config, 
+                             brickman_data = brickman_data_config)
 
-model <- list(seed = seed,
-              model_split = model_split,
-              model_list = model_list)
+model_config <- list(seed = seed,
+                     model_split = model_split,
+                     model_list = model_types)
 
 config <- list(version = v, 
-               training_data = training_data, 
-               model = model)
+               training_data = training_data_config, 
+               model = model_config)
 
 ### WRITING TO FILE
 write_config(config, overwrite = overwrite)

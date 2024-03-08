@@ -15,6 +15,7 @@ suppressPackageStartupMessages(
 ### DATA HELPERS
 
 # defining local function that will filter the data based on date 
+# data must have a "date" column
 filter_dates <- function(data, date_start, date_end) {
   if (!is.null(date_start)) {
     data <- filter(data, date >= as.Date(date_start))
@@ -27,15 +28,18 @@ filter_dates <- function(data, date_start, date_end) {
 
 ### PREDICTION AND PLOT HELPERS
 
-mon_names <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
-               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+# Returns a list of month names
+mon_names <- function() {
+  c("Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+}
 
 # converts a month number to the corresponding string 
 as_month <- function(mon_num = NA) {
   
   if (is.na(mon_num)) {return("")}
   
-  paste("-", mon_names[mon_num])
+  mon_names()[as.numeric(mon_num)]
 }
 
 # returns a list of monthly variables in Brickman dataset
@@ -79,7 +83,22 @@ pred_path <- function(v = "v1.00",
 
 ### VERSION HELPERS
 
-# Note: many functions here take heavy reference from Kenny's setup.R
+#' Retrieves a fitted workflow for desired version. If version is already
+#' a workflow, simply returns workflow
+get_v_wkf <- function(v, wkf = NULL) {
+  if (!is.null(wkf)) {
+    wkf
+  } else {
+    readRDS(v_path(v, "model", "model_fit.csv.gz"))
+  }
+}
+
+# retrieves testing data for a desired version. v3.00 and higher
+get_testing <- function(v) {
+  v_path(v, "model", "testing_results.csv.gz") |>
+    readr::read_csv(col_types = readr::cols()) |>
+    mutate(across(c("month", "patch", ".pred_class"), as.factor))
+}
 
 #' Parse a version string into subparts
 #' Versions have format vMajor.Minor
