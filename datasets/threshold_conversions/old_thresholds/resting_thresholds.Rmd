@@ -1,0 +1,175 @@
+---
+title: "Resting threshold exploration"
+output: 
+  html_document:
+    toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(purrr)
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(data.table)
+
+filter_dates <- function(data, date_start, date_end) {
+  if (!is.null(date_start)) {
+    data <- filter(data, date >= as.Date(date_start))
+  }
+  if (!is.null(date_end)) {
+    data <- filter(data, date <= as.Date(date_end))
+  }
+  data
+}
+```
+
+See [threshold_doc2.html](threshold_doc2.html) for details on region generation. 
+
+```{r}
+root <- "/mnt/ecocast/projectdata/calanusclimate/src"
+
+ae <- readr::read_csv(file.path(root, "tc_datasets/ae_regionvd_cfin.csv.gz"),
+                      col_types = readr::cols())
+
+head(ae)
+```
+```{r, echo = FALSE}
+ggplot(ae, aes(x = log10(abundance + 1))) +
+  geom_histogram(bins = 50, col = "white", fill = "yellowgreen") +
+  ggtitle("Abundance count distribution") + 
+  theme_bw()
+```
+
+<br>
+
+# Dry Weight Conversion
+
+I'm using averaged IDW estimates pulled from Sorochan et. al 2019.
+
+* I'm ignoring the southwest GSL estimates pulled from Plourde et. al. 2019 and instead choosing to focus on the top four rows. 
+* I'm using C5 to approximate averaged C4-C6 IDW. 
+
+![Sorochan et. al 2019, Table 2](sorochan_table.jpeg)
+
+```{r}
+ae_dw <- ae |>
+  mutate(dry_weight = abundance * 
+           map(region_tc, ~ifelse(.x == "gsl", 333, 195)) |> unlist())
+```
+
+```{r, echo = FALSE}
+ggplot(ae_dw, aes(x = log10(dry_weight + 1))) +
+  geom_histogram(bins = 50, col = "white", fill = "yellowgreen") +
+  ggtitle("Dry Weight biomass distribution") + 
+  theme_bw()
+```
+```{r, echo = FALSE}
+ae_dw |> 
+  mutate(across(month, as.factor)) |>
+  group_by(month, region_tc) |>
+  summarize(n()) |>
+  ggplot(aes(x = month, y = region_tc, fill = log10(`n()` + 1))) +
+  geom_raster() +
+  theme_bw() +
+  ggtitle("Number of points for each region and month") +
+  viridis::scale_fill_viridis()
+```
+
+# Threshold Conversion
+
+Next, we convert from dry weight to threshold. Threshold is computed based off of region and bathymetry. We use the lookup table provided by caroline to determine the biomass threshold at a given point. 
+
+Some months performed badly in analyses, and so we map predictions to adjacent months instead. 
+```{r}
+month_map <- matrix(c(
+  11, 11, 4, 4, 6, 6, 6, 9, 9, 10, 11, 11,
+  11, 11, 4, 4, 5, 6, 6, 9, 9, 10, 11, 11, 
+  11, 11, 3, 5, 5, 6, 7, 8, 9, 11, 11, 11,
+  1, 1, 4, 4, 4, 7, 7, 8, 8, 12, 12, 12), 
+  nrow = 12,
+  dimnames = list(c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), c("ess", "wss", "gsl", "gom"))
+)
+
+ae_thresholds <- ae_dw |>
+  rowwise() |>
+  mutate(tmonth = month_map[[month, region_tc]]) |>
+  ungroup()
+```
+
+```{r}
+thresholds <- read.table("Calanus_threshold_resting.txt", header = TRUE) |>
+  group_by(month, region_vd)
+
+tkeys <- group_keys(thresholds)
+tlist <- group_split(thresholds, .keep = FALSE) |>
+  map(~as.data.table(.x) |> 
+        setkey(depth))
+names(tlist) <- paste(tkeys$region_vd, tkeys$month)
+
+ae_thresholds <- ae_thresholds |> 
+  group_by(tmonth, region_tc) |>
+  group_split() |>
+  lapply(function(a) tlist[[paste(a[[1, "region_tc"]], a[[1, "month"]])]]
+         [J(a$Bathy_depth), roll = "nearest"] |>
+           select(Min_cfin_mgm2) |>
+           bind_cols(a)) |>
+  bind_rows() |>
+  mutate(patch = dry_weight >= 1000 * Min_cfin_mgm2)
+
+count(ae_thresholds, patch) |>
+  mutate(percent = n/sum(n))
+```
+```{r, echo = FALSE} 
+# threshold map
+ggplot(ae_thresholds, aes(x = lon, y = lat)) +
+  geom_polygon(data = ggplot2::map_data("world"), 
+               aes(long, lat, group = group),
+               fill = "lightgray", col = "gray") +
+  geom_point(aes(col = log10(Min_cfin_mgm2 + 1)), alpha = .3) +
+  coord_quickmap(xlim = c(-76, -40), ylim = c(35, 60), expand = TRUE) +
+  viridis::scale_color_viridis() +
+  theme_bw() + 
+  ggtitle("Threshold values")
+
+# patch map
+ggplot(ae_thresholds, aes(x = lon, y = lat)) +
+  geom_polygon(data = ggplot2::map_data("world"), 
+               aes(long, lat, group = group),
+               fill = "lightgray", col = "gray") +
+  geom_point(aes(col = patch), alpha = .7) +
+  coord_quickmap(xlim = c(-76, -40), ylim = c(35, 60), expand = TRUE) +
+  theme_bw() + 
+  ggtitle("Patch values")
+
+ggplot(filter(ae_thresholds, patch), aes(x = lon, y = lat)) +
+  geom_polygon(data = ggplot2::map_data("world"), 
+               aes(long, lat, group = group),
+               fill = "lightgray", col = "gray") +
+  geom_point(col = "blue", alpha = .7) +
+  coord_quickmap(xlim = c(-76, -40), ylim = c(35, 60), expand = TRUE) +
+  theme_bw() + 
+  ggtitle("Positive patch values")
+```
+
+Positive patch values are only for dates outside of desired range....
+
+```{r echo = FALSE}
+ggplot(filter(ae_thresholds, patch) |> filter_dates( "1990-01-01", "2015-12-31"), aes(x = lon, y = lat)) +
+  geom_polygon(data = ggplot2::map_data("world"), 
+               aes(long, lat, group = group),
+               fill = "lightgray", col = "gray") +
+  geom_point(aes(col = year(date)), alpha = .7) +
+  viridis::scale_color_viridis() +
+  coord_quickmap(xlim = c(-76, -40), ylim = c(35, 60), expand = TRUE) +
+  theme_bw() + 
+  ggtitle("Positive patch values within year range")
+```
+
+```{r eval = FALSE}
+ae_thresholds |> as.data.frame() |> 
+  mutate(patch = as.numeric(patch)) |>
+  readr::write_csv(file.path(root, "tc_datasets/resting_ae_dthresholds.csv.gz"))
+```
+
