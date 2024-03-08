@@ -1,0 +1,224 @@
+---
+title: "Dry Weight and Threshold conversions"
+output: 
+  html_document:
+    toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+```
+
+# Data Preparation
+
+We'll start by working with the raw azmp data and the vertically corrected ecomon dataset. 
+
+```{r}
+root <- "/mnt/ecocast/projectdata/calanusclimate/src"
+
+azmp <- azmpcfin::read_calanus()
+e_corr <- readr::read_csv(file.path(root, "vertical_correction_ecomon.csv.gz"),
+                          col_types = readr::cols())
+```
+
+To support the dry weight and threshold conversions, we must assign each point to a region. 
+
+All ecomon points are in the region "GoM". 
+
+```{r}
+e_corr <- mutate(e_corr, 
+                 region_dw = "GoM")
+```
+
+AZMP regions are defined by the shapefile provided by Caroline. Any points outside
+of the defined regions are assigned to "NL". 
+
+```{r}
+regions <- read_sf(dsn = "shapefiles/Regions_dw_vd_poly_all.shp") |>
+  st_make_valid() |>
+  st_transform(crs = 4326)
+
+azmp <- mutate(azmp, region_dw = 
+  st_intersects(st_as_sf(azmp, coords = c("longitude", "latitude"), crs = 4326),
+                regions, sparse = FALSE) |>
+  apply(1, function(u) regions$id[ifelse(any(u), which(u), 8)]))
+```
+```{r, echo = FALSE}
+ggplot() +
+  geom_polygon(data = ggplot2::map_data("world"), 
+               aes(long, lat, group = group),
+               fill = "lightgray", col = "gray") +
+  geom_sf(data = regions, alpha = 0, col = "black") +
+  geom_point(data = azmp, aes(x = longitude, y = latitude, col = region_dw), alpha = .7) +
+  coord_sf(xlim = c(-70, -40), ylim = c(40, 60), expand = TRUE) +
+  theme_bw() + 
+  ggtitle("AZMP points by dry weight region")
+```
+
+Then, we bind the two datasets together and merge it with Brickman datapoints.
+
+```{r, eval = FALSE, include = FALSE}
+desired_vars <- c("src", "id", "date", "region_dw", "station", "transect", 
+                  "longitude", "latitude", "depth", "abundance")
+
+e_corr <- e_corr |>
+  mutate(src = "ecomon", 
+         station = NA,
+         transect = NA,
+         id = sprintf("%s_%i", .data$cruise_name, .data$station)) |>
+  rename(abundance = corrected_CIV_CVI_m2, depth = sta_depth) |>
+  select(all_of(desired_vars))
+
+azmp <- azmp |>
+  mutate(src = "azmp", 
+         id = sprintf("%s_%s", .data$transect, .data$station),
+         date = as.Date(sprintf("%0.4i-%0.2i-%0.2i", .data$year, .data$month,.data$day)),
+         abundance = (.data$calanus_finmarchicus_iv + 
+                        .data$calanus_finmarchicus_v + 
+                        .data$calanus_finmarchicus_vi)) |>
+  select(all_of(desired_vars))
+    
+ae <- bind_rows(azmp, e_corr) |>
+  mutate(month = as.numeric(format(date, "%m"))) |>
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+```
+```{r, eval = FALSE, include = FALSE}
+brickman_source <- brickman::compose_filename("PRESENT")
+
+brickman_vars <- brickman::query_layers(scenario = "PRESENT")
+brickman_vars <- brickman_vars[!grepl("_ann", brickman_vars)]
+
+data <- brickman::extract_points(brickman_source, 
+                                 brickman_vars, 
+                                 ae, 
+                                 complete = TRUE,
+                                 simplify_names = FALSE) |> 
+  bind_cols(ae) |>
+  select(-nav_lat, -nav_lon, -olon, -olat, -index, -row, -col, -geometry) |>
+  rowwise() |>
+  mutate_at(c("Xbtm", "MLD", "Sbtm", "SSS", "SST", "Tbtm", "U", "V"), 
+            ~.x[[month]]) |>
+  ungroup()
+
+# saving to file 
+readr::write_csv(data, file = file.path(root, "tc_datasets/ae_regionvd_cfin.csv.gz"))
+```
+
+```{r}
+ae <- readr::read_csv(file.path(root, "tc_datasets/ae_regionvd_cfin.csv.gz"))
+
+head(ae)
+```
+```{r, echo = FALSE}
+ggplot(ae, aes(x = log10(abundance + 1))) +
+  geom_histogram(bins = 50, col = "white", fill = "yellowgreen") +
+  ggtitle("Abundance count distribution") + 
+  theme_bw()
+```
+
+<br>
+
+# Dry Weight Conversion
+
+Original dry weight conversion from Caroline below. This determines dry weight when the species enters diapause. 
+
+```{r eval = FALSE}
+pres |> 
+  mutate(Cfin_C5C = 
+           ifelse(REGION_predictions %in% c("GoM", "WSS", "ESS") & MONTH %in% c(5,6),
+                  (-18.8 * T0_50)+332,
+                  ifelse(REGION_predictions %in% c("neGSL","nwGSL", "sGSL", "sNL") 
+                         & MONTH %in% c(7,8), (-18.8 * T0_50)+332, NA)),
+         Chyp_C4C = 
+           ifelse(REGION_predictions %in% c("GoM", "WSS", "ESS") & MONTH %in% c(4,5),
+                  ((-4.71 * T0_50)+94)*6,
+                  ifelse(REGION_predictions %in% c("neGSL","nwGSL", "sGSL", "sNL") 
+                         & MONTH %in% c(5,6), ((-4.71 * T0_50)+94)*6, NA)),
+         Cgla_C4C = 
+           ifelse(REGION_predictions %in% c("GoM", "WSS", "ESS") & MONTH %in% c(4,5),
+                  ((-4.71 * T0_50)+94)*2,
+                  ifelse(REGION_predictions %in% c("neGSL", "nwGSL", "sGSL", "sNL") 
+                         & MONTH %in% c(5,6),((-4.71 * T0_50)+94)*2, NA)))
+```
+
+**Questions and Concerns**
+
+* Currently, we do not have T0-50m from the Brickman dataset. At present I've decided to make do with SST, but this is not ideal. Camille is looking for the stratified temperature estimates from Brickman. 
+* Dry weight is only provided for a single stage of each species. This stage is the stage at which the individual enters diapause, and so the assumption is that the weight will stay constant through later stages. 
+  * This allows us to marry the vertical sampling correction for Ecomon, which combines stages C4-C6, with these dry weight estimates. 
+  * Can we assume that C4 and C5 dry weight from Ecomon are the same, even though C4 has not yet entered diapause?
+* Only a subset of months and regions are available. Solutions:
+  * Only train the data using the months and regions we do have. Results in a greatly reduced training set that doesn't have experience modeling seasonality, and probably expects calanus to constantly be in diapause. 
+
+```{r}
+# implementing correction for C. Finmarchicus 
+ae_dw <- ae |>
+  filter((region_dw %in% c("GoM", "WSS", "ESS") & month %in% c(5, 6)) |
+         (region_dw %in% c("neGSL","nwGSL", "sGSL", "sNL") & month %in% c(7, 8))) |>
+  mutate(dry_weight = abundance * ((-18.8 * SST) + 332))
+
+nrow(ae_dw)
+```
+
+```{r, echo = FALSE}
+ggplot(ae_dw, aes(x = log10(dry_weight + 1))) +
+  geom_histogram(bins = 50, col = "white", fill = "yellowgreen") +
+  ggtitle("Dry Weight biomass distribution") + 
+  theme_bw()
+```
+
+# Threshold Conversion
+
+Next, we convert from dry weight to threshold. Threshold is computed based off of region and bathymetry. 
+
+* For azmp, points outside of the shapefile regions are not assigned to the correct threshold region. Therefore we will compute threshold region based on the equation from Caroline that uses transect and region. 
+
+```{r}
+# computing region_vd
+get_region_vd <- function(transect, station) {
+  if (is.na(transect)) {
+    "gom"
+  } else if (transect == "BBL") {
+    "wss"
+  } else if (transect %in% c("HL", "LL", "SESPB", "SWSPB") || 
+             station == "HL2") {
+    "ess"
+  } else if (station == "P5") {
+    "gom"
+  } else {
+    "gsl"
+  }
+}
+
+ae_dw <- ae_dw |>
+  mutate(region_vd = purrr::map2(transect, station, get_region_vd) |>
+           unlist())
+```
+```{r, echo = FALSE}
+ggplot() +
+  geom_polygon(data = ggplot2::map_data("world"), 
+               aes(long, lat, group = group),
+               fill = "lightgray", col = "gray") +
+  geom_point(data = ae_dw, aes(x = lon, y = lat, col = region_vd), 
+             alpha = .7, size = .5) +
+  coord_quickmap(xlim = c(-80, -40), ylim = c(35, 60), expand = TRUE) +
+  theme_bw() + 
+  ggtitle("AZMP points by threshold conversion region")
+```
+
+Now, we use the lookup table provided by caroline to determine the biomass threshold at a point and finally, whether the point is a patch. 
+
+```{r}
+thresholds <- read.table("Calanus_threshold.txt", header = TRUE) |>
+  rename(Bathy_depth = depth)
+
+dplyr::left_join(ae_dw |>
+                   mutate(Bathy_depth = floor(min(Bathy_depth, 500))), 
+           thresholds, 
+           by = c("month", "Bathy_depth", "region_vd"))
+```
+

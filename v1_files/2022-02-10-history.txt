@@ -1,0 +1,382 @@
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-crop.R")
+?st_bbox
+bb <- sf::st_bbox(calanus) + c(-.5, -.5, .5, .5) |>
+sf::st_as_sfc()
+bb <- (sf::st_bbox(calanus) + c(-.5, -.5, .5, .5)) |>
+sf::st_as_sfc()
+bb
+clim <- st_crop(climate, bb)
+clim
+filename = compose_filename()
+bb = c(-69.25417,  43.38309, -57.67000,  50.60400)
+ofile = gsub(".nc", "_cropped.nc", filename, fixed = TRUE)
+if (!inherits(bb, "numeric")) bb <- as.numeric(bb) #left, bottom, right, top
+X <- ncdf4::nc_open(filename)
+lon <- ncdf4::ncvar_get(X, "nav_lon")
+lat <- ncdf4::ncvar_get(X, "nav_lat")
+ix <- lon >= bb[1] & lon <= bb[3]
+long = lon[ix]
+lon <- ncdf4::ncvar_get(X, "nav_lon")
+lat <- ncdf4::ncvar_get(X, "nav_lat")
+dlon <- dim(lon)
+dlat <- dim(lat)
+ix <- c(
+xmin = which.min(abs(lon - bb[1])),
+ymin = which.min(abs(lat - bb[2])),
+xmax = which.min(abs(lon = bb[3])),
+ymax = which.min(abs(lat = bb[4]))
+)
+ix <- c(
+xmin = which.min(abs(lon - bb[1])),
+ymin = which.min(abs(lat - bb[2])),
+xmax = which.min(abs(lon - bb[3])),
+ymax = which.min(abs(lat - bb[4]))
+)
+ix
+summary(lon[,1])
+summary(lon[1,])
+bb
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-crop.R")
+bb
+climate
+z = climate[bb]
+z
+prec_file = system.file("nc/test_stageiv_xyt.nc", package = "stars")
+prec = read_ncdf(prec_file, curvilinear = c("lon", "lat"))
+prec
+plot(prec)
+qu_0_omit = function(x, ..., n = 22) {
+if (inherits(x, "units"))
+x = units::drop_units(na.omit(x))
+c(0, quantile(x[x > 0], seq(0, 1, length.out = n)))
+}
+library(dplyr) # loads slice generic
+prec_slice = slice(prec, index = 17, along = "time")
+plot(prec_slice, border = NA, breaks = qu_0_omit(prec_slice[[1]]), reset = FALSE)
+nc = sf::read_sf(system.file("gpkg/nc.gpkg", package = "sf"), "nc.gpkg")
+plot(st_geometry(nc), add = TRUE, reset = FALSE, col = NA, border = 'red')
+nc
+bb
+nc = st_transform(nc, st_crs(prec_slice)) # datum transformation
+plot(prec_slice[nc], border = NA, breaks = qu_0_omit(prec_slice[[1]]), reset = FALSE)
+plot(st_geometry(nc), add = TRUE, reset = FALSE, col = NA, border = 'red')
+bb = st_transform(bb, st_crs(climate))
+climate
+plot(climate[1,,], reset = FALSE)
+clim = climate[1,,]
+clim
+plot(clim[bb])
+z = climate[bb]
+ix <- is.na(z$SST_ann)
+str(ix)
+str(which(ix))
+ix <- !is.na(z$SST_ann)
+str(which(ix))
+library(twinkle)
+?twinkle
+loc = stars_index_to_loc(which(ix), climate)
+loc
+summary(loc)
+?plot
+bb
+bb$xlim
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-crop.R")
+dim(cropped)
+dim(climate)
+bb
+bb$xlim
+plot(cropped, attr = 'SST',
+xlim = bb$xlim,
+ylim = bb$ylim,
+axes = TRUE)
+cropped
+plot(cropped, attr = 'SST_ann',
+xlim = bb$xlim,
+ylim = bb$ylim,
+axes = TRUE)
+plot(sf::st_geometry(calanus), col = 'orange', add = TRUE)
+dim(calanus)
+summary(calanus)
+calanus <- calanusthreshold::read_dataset(gsts_filename, drop_vars = NULL)
+x = read_csv(gsts_filename)
+library(readr)
+x = read_csv(gsts_filename)
+setwd("/mnt/ecocast/projects/students/ojohnson/brickman")
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+glimpse(calanus)
+calanus <- readr::read_csv(gsts_filename, show_col_types = FALSE) |>
+sf::st_as_sf(coords = c("longitude", "latitude"), crs = sf::st_crs(climate))
+plot(calanus, add = TRUE, col = 'green')
+st_bbox(calanus)
+plot(st_bbox(calanus) |> st_as_sfc(crs = 4326), col = 'orange', add = TRUE)
+calanus <- readr::read_csv(gsts_filename, show_col_types = FALSE) |>
+sf::st_as_sf(coords = c("longitude", "latitude"), crs = sf::st_crs(climate))
+plot(st_geometry(calanus), axes = TRUE)
+clim = 0
+X
+nc_close(X)
+library(ncdf4)
+nc_close(X)
+C = 0
+X = 0
+long = 0
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+?st_extract
+pts <- st_extract(climate, calanus)
+?colrow_from_xy
+library(terra)
+?terra
+vals <- sf::st_extract(climate, calanus)
+vals <- stars::st_extract(climate, calanus)
+calanus <- readr::read_csv(gsts_filename, show_col_types = FALSE)
+dput(calanus |> select(longitude, latitude) |> head)
+dput(calanus |> select(longitude, latitude) |> head() )
+setwd("/mnt/ecocast/corecode/R/brickman")
+pts = calanus |> head(5)
+pts
+xy = calanus |> head(5) |> st_coordinates()
+calanus
+calanus <- readr::read_csv(gsts_filename, show_col_types = FALSE) |>
+sf::st_as_sf(coords = c("longitude", "latitude"), crs = sf::st_crs(climate))
+xy = calanus |> slice_sample(n=5) |> st_coordinates()
+xy
+dput(xy)
+filename = compose_filename()
+filename
+X = nc_open(filename)
+library(ncdf4)
+X = nc_open(filename)
+nav <- list(lon = ncdf4::ncvar_get(X, "nav_lon"), lat = ncdf4::ncvar_get(X, "nav_lat"))
+str(nav)
+ix <- (lon-xy[1,1])^2 + (lat-x[1,2])^2
+ix <- (nav$lon-xy[1,1])^2 + (nav$lat-x[1,2])^2
+ix <- (nav$lon-xy[1,1])^2 + (nav$lat-xy[1,2])^2
+str(iy)
+str(ix)
+which.min(ix)
+nav$lon[421831]
+nav$lat[421831]
+xy[1,]
+ix <- (nav$lon-xy[,1])^2 + (nav$lat-xy[,2])^2
+str(ix)
+lon = ncdf4::ncvar_get(X, "nav_lon")
+lat = ncdf4::ncvar_get(X, "nav_lat")
+d <- dim(lon)
+index <- sapply(seq_len(nrow(xy)),
+function(i, xy, lon, lat){
+ix <- (lon-xy[i,1])^2 + (lat-xy[i,2])^2
+}, xy, lon, lat)
+index
+index <- sapply(seq_len(nrow(xy)),
+function(i, xy, lon, lat){
+((lon-xy[i,1])^2 + (lat-xy[i,2])^2) |>
+which.min(ix)
+}, xy, lon, lat)
+index <- sapply(seq_len(nrow(xy)),
+function(i, xy, lon, lat){
+((lon-xy[i,1])^2 + (lat-xy[i,2])^2) |>
+which.min()
+}, xy, lon, lat)
+index
+index <- sapply(seq_len(nrow(xy)),
+function(i, xy, lon, lat){
+((lon-xy[i,1])^2 + (lat-xy[i,2])^2) |>
+which.min()
+}, xy, lon, lat)
+col   <- ((index - 1) %% d[2]  + 1
+row   <- floor((index - 1) / d[2] + 1
+index <- sapply(seq_len(nrow(xy)),
+function(i, xy, lon, lat){
+((lon-xy[i,1])^2 + (lat-xy[i,2])^2) |>
+which.min()
+}, xy, lon, lat)
+col   <- ((index - 1) %% d[2])  + 1
+row   <- floor((index - 1) / d[2]) + 1
+col
+row
+d
+names(X$var)
+str(X$var$dXbtm)
+ncvar_get
+?ncvar_get
+dput(names(X$var))
+vars = c("dXbtm",
+"dXbtm_ann")
+if (X$var[[vm]][['ndims']] == 2){
+v <- sapply(seq_len(nrow(x)){
+function(i){
+ncdf4::ncvar_get(X, vn, start = c(col[i], row[i]), count = c(1,1))
+})
+} else {
+V <- ncdf4::ncvar_get(X, vn)
+v <- lapply(seq_len(nrow(xy)),
+function(i){
+V[row[i], col[i], 1:12]
+}, simplify = FALSE)
+}
+}, simplify = FALSE)
+x <- sapply(vars,
+function(vn){
+if (X$var[[vm]][['ndims']] == 2){
+v <- sapply(seq_len(nrow(x)),
+function(i){
+ncdf4::ncvar_get(X, vn, start = c(col[i], row[i]), count = c(1,1))
+})
+} else {
+V <- ncdf4::ncvar_get(X, vn)
+v <- lapply(seq_len(nrow(xy)),
+function(i){
+V[row[i], col[i], 1:12]
+}, simplify = FALSE)
+}
+}, simplify = FALSE)
+x <- sapply(vars,
+function(vn){
+if (X$var[[vn]][['ndims']] == 2){
+v <- sapply(seq_len(nrow(x)),
+function(i){
+ncdf4::ncvar_get(X, vn, start = c(col[i], row[i]), count = c(1,1))
+})
+} else {
+V <- ncdf4::ncvar_get(X, vn)
+v <- lapply(seq_len(nrow(xy)),
+function(i){
+V[row[i], col[i], 1:12]
+}, simplify = FALSE)
+}
+}, simplify = FALSE)
+x <- sapply(vars,
+function(vn){
+if (X$var[[vn]][['ndims']] == 2){
+v <- sapply(seq_len(nrow(x)),
+function(i){
+ncdf4::ncvar_get(X, vn, start = c(col[i], row[i]), count = c(1,1))
+})
+} else {
+V <- ncdf4::ncvar_get(X, vn)
+v <- lapply(seq_len(nrow(xy)),
+function(i){
+V[row[i], col[i], 1:12]
+})
+}
+}, simplify = FALSE)
+col
+row
+vn = vars[1]
+nxy < nrow(xy)
+nxy <- nrow(xy)
+v <- sapply(seq_len(nxy),
+function(i){
+ncdf4::ncvar_get(X, vn, start = c(col[i], row[i]), count = c(1,1))
+})
+V <- ncdf4::ncvar_get(X, vn)
+str(V)
+v <- lapply(seq_len(nxy),
+function(i){
+V[row[i], col[i], 1:12]
+})
+str(v)
+vn = vars[2]
+v <- sapply(seq_len(nxy),
+function(i){
+ncdf4::ncvar_get(X, vn, start = c(col[i], row[i]), count = c(1,1))
+})
+dim(lon)
+col
+row
+V <- ncdf4::ncvar_get(X, vn)
+dim(V)
+V[col[1], row[1])
+V[col[1], row[1]]
+V[315,1022]
+x <- sapply(vars,
+function(vn){
+V <- ncdf4::ncvar_get(X, vn)
+if (X$var[[vn]][['ndims']] == 2){
+v <- sapply(seq_len(nxy),
+function(i){
+V[row[i], col[i]]
+})
+} else {
+v <- lapply(seq_len(nxy),
+function(i){
+V[row[i], col[i],]
+})
+}
+}, simplify = FALSE)
+str(x)
+x <- sapply(vars,
+function(vn){
+V <- ncdf4::ncvar_get(X, vn)
+if (X$var[[vn]][['ndims']] == 2){
+v <- sapply(seq_len(nxy),
+function(i){
+V[row[i], col[i]]
+})
+} else {
+v <- lapply(seq_len(nxy),
+function(i){
+V[row[i], col[i],]
+})
+}
+}, simplify = FALSE) |>
+dplyr::as_tibble()
+x
+devtools::dcoument()
+devtools::document()
+dput(xy)
+xy
+dput(xy[,1])
+dput(xy[,2])
+?on.exit
+devtools::document()
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+nc_close(X)
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+calanus
+pts = calanus; X = brickman::compose_filename(); vars = c("dSST","dSST_ann","dSSS","dSSS_ann")
+if (inherits(X, "character") && file.exists(X)){
+X <- ncdf4::nc_open(X)
+please_close_me <- TRUE
+} else {
+please_close_me <- FALSE
+}
+stopifnot(inherits(X, "ncdf4"))
+stopifnot(all(vars %in% names(X$var)))
+stopifnot(inherits(pts, "sf"))
+xy <- sf::st_geometry(pts)
+nxy <- nrow(xy)
+seq_len(nxy)
+xy
+xy <- sf::st_coordinates(pts)
+nxy <- nrow(xy)
+devtools::document()
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+vals
+plot(vals$dSST_ann, vals$dSSS_ann)
+plot(vals$dSST_ann, vals$dSSS_ann)
+summary(vals)
+summary(vals$dSST_ann)
+setwd("/mnt/ecocast/projects/students/ojohnson/brickman")
+vals
+vals$dSST[1]
+?which.min
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+source("/mnt/ecocast/projects/students/ojohnson/brickman/brickman-extract.R")
+vals
+summary(vals)
+dim(vals)
+library(leaflet)
+leaflet(data = calanus) |> addTiles() |> addCircleMarkers()
+clim <- climate[st_bbox(calanus) |> st_as_sfc(crs = st_crs(climate))]
+bb = st_bbox(calanus)
+bb$xlim
+plot(clim, axes = TRUE, xlim = bb$xlim, ylim = bb$ylim)
+plot(calanus, add = TRUE, col = 'orange')
+plot(st_geometry(calanus), add = TRUE, col = 'orange')
+cal <- st_transform(calanus, crs = st_crs(climate))
+plot(st_geometry(cal), add = TRUE, col = 'orange')
+dim(cal)
+savehistory("/mnt/ecocast/projects/students/ojohnson/brickman/2022-02-10-history.txt")
