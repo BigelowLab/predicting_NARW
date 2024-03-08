@@ -1,24 +1,25 @@
-v <- "v3.11.01"
+v <- "v4.02.04"
 interval <- "mon"
-overwrite <- FALSE
+overwrite <- TRUE
 
 # training data 
 strata = "patch"
 brickman_data_config <- list(interval = interval,
-                             vars = c("Bathy_depth", "MLD", "SST", "SSS", 
-                                      "Tbtm", "Sbtm", "U", "V"),
+                             vars = c("Bathy_depth", "MLD", "SST", "Sbtm", "SSS",
+                                      "Tbtm", "U", "V"),
                              transform = c("Vel = sqrt(U^2 + V^2)",
                                            "Bathy_depth = log10(Bathy_depth + 1)",
                                            "step_normalize()")) 
-species_data_config <- list(source = c("azmp"), #"ecomon", 
-                            species = "C. Hyperboreus", 
+species_data_config <- list(source = c("azmp", "ecomon"), 
+                            species = "C. finmarchicus", 
                             staged = FALSE,
-                            threshold = 2000,
+                            base = 40000*195,
+                            slope = 1000*195,
                             date_range = list(start =  "1990-01-01",
                                               end = "2015-12-31"),
                             vertical_correction = FALSE)
 # model
-seed <- 504
+seed <- 700
 model_split <- FALSE
 
 # engines
@@ -42,12 +43,12 @@ rf <- list(name = "Random Forest",
 brt <- list(name = "Boosted Regression Tree", 
             engine = "xgboost", 
             trees = 1000,
-            tree_depth = 6,
-            learn_rate = 0.0745,
-            min_n = 26,
-            mtry = 5,
-            sample_size = .597,
-            loss_reduction = 0.00568)
+            tree_depth = 15,
+            learn_rate = .000132,
+            min_n = 13,
+            mtry = 4,
+            sample_size = .667,
+            loss_reduction = .0000725)
 
 mlp <- list(name = "MLP Neural Network",
             engine = "keras",

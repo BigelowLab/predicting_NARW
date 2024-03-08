@@ -70,7 +70,7 @@ initial_analyse <- function(v, aug) {
         unlist()) |>
     mutate(month = as.numeric(month))
   
-  lb = .6
+  lb = .5
   mon_aucs <- ggplot(data = auc_monthly, 
                      mapping = aes(x = month, y = lb, height = auc_mon - lb)) +
     geom_ridgeline(color = "yellowgreen", fill = "yellowgreen", alpha = .5) +
@@ -90,7 +90,9 @@ initial_analyse <- function(v, aug) {
   
   list(roc_curve = roc_curve, 
        heatmap = heatmap, 
-       mon_aucs = mon_aucs)
+       mon_aucs = mon_aucs, 
+       patch_plot = plot_ae(aug, "patch", 
+                            paste(v, "patch values")))
 }
 
 #' Creates a workflow version 

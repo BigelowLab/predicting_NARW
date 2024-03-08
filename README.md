@@ -1,19 +1,17 @@
-# Version 3
+# Version 4 
 
-**v3.00 - v3.21**
+**v4.00.00 - v4.04.01**
 
-*7/11/2022 - 10/6/2022*
+*11/3/2022 - 12/15/2022*
 
 ### Changes
 
-* **Vertical distribution correction**
-* Improved plot code
-* Experimented with additional southern datasets to help lower atlantic responses
-* Experimented with *C. glacialis*
+* **Piecewise bathymetric correction threshold**
+* Semester paper
+* Combined species plots
+* Full resolution
 
 ### Example Plots
-
-*C. glacialis*
 
 ![Raw v3.21 present predictions](readme_imgs/image1.png)
 ![Feedplot v3.21 50% predictions](readme_imgs/image2.png)
