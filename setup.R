@@ -1,8 +1,8 @@
 suppressPackageStartupMessages(
   {
     library(dplyr) # data transformation
-    library(sf) # simple features -- storing and managing georeferences
     library(stars) # spatial data
+    #library(sf) broken until further notice
     library(calanusthreshold) #calanus data
     library(brickman) # brickman data
     library(ncdf4) # querying data 
@@ -29,12 +29,12 @@ filter_dates <- function(data, date_start, date_end) {
 
 ### PREDICTION AND PLOT HELPERS
 
-plot_ae <- function(data, plot_col = "patch", title = "Plot") {
+plot_ae <- function(data, plot_col = "patch", title = "Plot", size = .3) {
   ggplot(data, aes(x = lon, y = lat)) +
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
                  fill = "lightgray", col = "gray") +
-    geom_point(aes(col = get(plot_col)), alpha = .7, size = .3) +
+    geom_point(aes(col = get(plot_col)), alpha = .7, size = size) +
     coord_quickmap(xlim = c(-76, -40), ylim = c(35, 60), expand = TRUE) +
     labs(col = plot_col) +
     theme_bw() + 
@@ -114,20 +114,15 @@ available_versions <- function(vNum = "v5") {
     list.files()
 }
 
-#' Retrieves a fitted workflow for desired version. If version is already
-#' a workflow, simply returns workflow
-get_v_wkf <- function(v, wkf = NULL) {
-  if (!is.null(wkf)) {
-    wkf
-  } else {
-    model_obj <- readRDS(v_path(v, "model", "model_fit.csv.gz"))
-    
-    if (any(class(model_obj) == "bundle")) {
-      model_obj <- unbundle(model_obj)
-    }
-    
-    model_obj
+#' Retrieves fitted workflows for desired version. 
+get_v_wkfs <- function(v) {
+  model_obj <- readRDS(v_path(v, "model", "model_fits.csv.gz"))
+  
+  if (any(class(model_obj) == "bundle")) {
+    model_obj <- unbundle(model_obj)
   }
+  
+  model_obj
 }
 
 # retrieves testing data for a desired version. v3.00 and higher

@@ -14,13 +14,13 @@ if (FALSE) {
                                           interval = "mon", 
                                           form = "stars")
   
-  for(var in c("SST", "Tbtm")) { #c("MLD", "SST", "Sbtm", "SSS", "Tbtm")) {
+  for(var in c("SSS")) { #c("MLD", "SST", "Sbtm", "SSS", "Tbtm")) {
     
     brickman_var <- present_vars[var]
     
     # Vel
-    var <- "Vel"
-    brickman_var <- present_vars[c("U", "V")]
+    # var <- "Vel"
+    # brickman_var <- present_vars[c("U", "V")]
     
     variable_data <- 1:12 |>
       map(~dplyr::slice(brickman_var, month, .x) |>
@@ -28,20 +28,30 @@ if (FALSE) {
             na.omit() |>
             filter(x >= -77 & x <= -42.5 & 
                      y >= 36.5 & y <= 56.7) |>
-            #filter(get(var) != 0) |> # SST
-            mutate(Vel = sqrt(U^2 + V^2)))
+            filter(get(var) != 0))
+    
+    species_data <- get_species_raw("C. finmarchicus") |>
+      #filter(src == "azmp") |> 
+      mutate(patch = ifelse(dry_weight > 30000*195, "PATCH", "NO PATCH"))
     
     plots <- 1:12 |>
-      map(~ggplot(variable_data[[.x]], aes(x = x, y = y, col = get(var))) +
-            geom_point(cex = .28, pch = 15) +
+      map(~ggplot(filter(species_data, month == .x)) +
+            geom_point(data = variable_data[[.x]], aes(x = x, y = y, col = get(var)), 
+                       cex = .28, pch = 15) +
             theme_void() + 
-            # theme(panel.grid.minor = element_blank(),
-            #       panel.grid.major = element_blank(),
-            #       legend.position = "bottom") +
+            theme(legend.position = "bottom") +
             labs(col = var) + #x = "Latitude", y = "Longitude"
-            scale_color_viridis(option = "cividis", direction = -1) +
+            scale_color_viridis(option = "turbo", 
+                                limits = c(22.5, 32.5),
+                                na.value = "black") +
             coord_quickmap() +
-            ggtitle(as_month(.x))) #paste(var, "(PRESENT) -", as_month(.x)))
+            geom_point(aes(x = lon, y = lat, shape = patch), color = "black", size = 1.5,
+                       fill = "white") +
+            scale_shape_manual(values = c(24, 21), guide = "none") +
+            facet_wrap(~patch) +
+            ggtitle(paste(var, "-", as_month(.x), "Patch overlay Cfin"))) #paste(var, "(PRESENT) -", as_month(.x)))
+    
+    plots[[8]]
     
     ggarrange(plotlist = plots, nrow = 3, ncol = 4, 
               common.legend = TRUE, legend = "bottom") |>

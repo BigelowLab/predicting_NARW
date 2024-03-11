@@ -1,4 +1,4 @@
-v <- "v6.02"
+v <- "v6.03"
 overwrite <- TRUE
 
 # training data 
@@ -10,7 +10,7 @@ brickman_data_config <- list(interval = "mon",
                                            "Bathy_depth = log10(Bathy_depth + 1)",
                                            "step_normalize()")) 
 species_data_config <- list(source = c("azmp", "ecomon"), 
-                            species = "C. hyperboreus", #####
+                            species = "C. hyperboreus REAL", #####
                             staged = FALSE,
                             threshold = list(pre = "flat_tm(30000*195)",
                                              post = "stephane_final(state_val = 'rest')"), #######
@@ -36,8 +36,8 @@ rf <- list(name = "Random Forest",
 brt <- list(name = "Boosted Regression Tree", 
             engine = "xgboost", 
             trees = 500,
-            learn_rate = .01,
-            tree_depth = 6,
+            learn_rate = .1,
+            tree_depth = 4,
             mtry = 5,
             min_n = 10)
 

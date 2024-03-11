@@ -72,6 +72,7 @@ get_data <- function(vars = c("Bathy_depth", "MLD", "Sbtm", "SSS",
                      threshold_method,
                      species = c("C. finmarchicus", 
                                  "C. hyperboreus",
+                                 "C. hyperboreus REAL",
                                  "C. glacialis")[1]) {
   
   ogdata <- get_species_raw(species, filter = TRUE)
@@ -138,6 +139,7 @@ get_species_raw <- function(species = "C. finmarchicus",
   root <- "/mnt/ecocast/projectdata/calanusclimate/src"
   filename <- list("C. finmarchicus" = "tc_datasets/dry_weight_ae.csv.gz",
                    "C. hyperboreus" = "tc_datasets/ae_dryweight_nooutliers_chyp.csv.gz",
+                   "C. hyperboreus REAL" = "1_5_final_chyp/chyp_src_calspp.csv.gz",
                    "C. glacialis" = "glacialis_a.csv.gz")[species]
   
   d <- file.path(root, filename[[1]]) |> 

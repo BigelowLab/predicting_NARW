@@ -1,19 +1,26 @@
-# Version 5 
 
-**v5.00.00 - v5.20.1**
+# Predicting novel Eubalaena glacialis foraging habitat under future climate scenarios in the Northwest Atlantic 
 
-*2/17/2023 - 4/20/2023*
+Codebase used to conduct research presented in Johnson et al. in progress manuscript.
+
+## Version 6 
+
+**v6.00 - v6.03**
+
+*5/27/2023 -*
 
 ### Changes
 
-* **Complex, non-linear bathymetric post-model correction**
-  * experimentation and publishable function
-* modularized plot code, general rewrite of codebase
-* Experimentation with quantile predictions
-* Cropped prediction processing = reduced runtimes
-* Additional experimentation with `keras` neural network algorithms
+* **Final tuning parameters and corrections for publishable manuscript**
+* Revisions to plot code, color schemes, and layouts
+* Use of corrected *C. hyperboreus* dataset
 
 ### Example Plots
 
+Combined *Calanus* spp. present-day tau-h-patch probability, v6.03
+
 ![Raw present predictions](readme_imgs/image1.png)
-![Feedplot 50% predictions, keras](readme_imgs/image2.png)
+
+Combined habitat shift maps, RCP 8.5 2075 vs. present-day, v6.03
+
+![Habitat shift map](readme_imgs/image2.png)

@@ -1,3 +1,4 @@
+# /mnt/ecocast/projects/students/ojohnson/brickman/analyse.R
 library(RColorBrewer)
 library(viridis)
 library(vip)
@@ -11,241 +12,420 @@ save_analysis <- function(plot, v, name) {
   dev.off()
 }
 
-# creates a breakdown of how removing a variable affects AUC and saves to file. 
-var_cont <- function(v, 
-                     training_data,
-                     wkf = NULL,
-                     monthly = c(TRUE, FALSE),
-                     num_folds = 10, 
-                     formula = patch ~ Bathy_depth + MLD + SST + SSS + Tbtm + Sbtm + Vel) {
-  # extracting needed elements
-  wkf <- get_v_wkf(v, wkf)
-  model_list <- wkf |>
-    extract_spec_parsnip() |>
-    list()
+# Calculates AUC by month 
+roc_curves_w_ci <- function(v) {
   
-  baked_data <- wkf |>
-    extract_recipe(estimated = TRUE) |>
-    bake(training_data)
+  test_res <- get_testing(v)
   
-  formulas <- leave_var_out_formulas(
-    formula, 
-    data = baked_data
-  )
+  overall <- test_res |>
+    group_by(wkf_id) |>
+    summarize(auc = roc_auc_vec(patch, .pred_1, event_level = "second"), 
+              .groups = 'keep') |>
+    ungroup()
   
-  # building workflow set and running models
-  var_wkfs <- workflow_set(preproc = formulas, 
-                           models = model_list, 
-                           cross = FALSE) |>
-    mutate(wflow_id = sub("\\_.*", "", wflow_id))
+  # by standard deviation
+  # overall_stats <- lm(auc ~ 1, overall) |>
+  #   confint()
+  # overall_stats
+  #
+  # res <- wkfsd |>
+  #   group_by(month, id) |>
+  #   summarize(auc = roc_auc_vec(patch, .pred_1, event_level = "second"), 
+  #             .groups = 'keep') |>
+  #   na.omit() |>
+  #   group_by(month) |>
+  #   summarize(confint = lm(auc~1, list(auc)) |> confint()) |>
+  #   transmute(month, lower = confint[,1], upper = confint[,2])
   
-  results <- var_wkfs |>
-    workflow_map("fit_resamples", 
-                 verbose = TRUE, 
-                 seed = 120, 
-                 control = control_resamples(save_pred = TRUE),
-                 resamples = vfold_cv(baked_data, v = num_folds, strata = patch),
-                 metrics = metric_set(roc_auc))
+  # by quantile
+  res <- test_res |>
+    group_by(month, wkf_id) |>
+    summarize(auc = roc_auc_vec(patch, .pred_1, event_level = "second"), 
+              .groups = 'keep') |>
+    na.omit() |>
+    group_by(month) |>
+    summarize(lower = quantile(auc, .025), 
+              mean = quantile(auc, .5), 
+              upper = quantile(auc, .975),
+              .groups = 'keep')
   
-  # iterating through each desired value for monthly 
-  for (m in monthly) {
-    
-    if (m) {
-      preds <- results |>
-        collect_predictions() |>
-        group_split(wflow_id) |>
-        map(~ bind_cols(.x, training_data |> select(month)) |>
-              group_by(month) |>
-              summarize(wflow_id = wflow_id[[1]], 
-                        auc = roc_auc_vec(truth = patch, .pred_0)))
-      
-      control <- preds[[2]] |> pull(auc)
-      
-      plottable_aucs <- preds |>
-        map(~ mutate(.x, auc = auc - control)) |>
-        bind_rows() |>
-        mutate(negative = auc < 0) |>
-        filter(wflow_id != "everything")
-      
-      save_name = "var_on_aucs_mon"
-      
-    } else {
-      metrics <- results |>
-        collect_metrics(summarize = FALSE) |>
-        group_by(wflow_id) |>
-        summarize(max = max(.estimate), 
-                  min = min(.estimate), 
-                  auc = median(.estimate))
-      
-      control = pull(metrics, auc, wflow_id)[["everything"]]
-      
-      plottable_aucs <- metrics |>
-        filter(wflow_id != "everything") |>
-        mutate(across(c(max, auc, min), ~.x - control), 
-               negative = auc < 0)
-      
-      save_name = "var_on_aucs"
-    }
-    
-    plot_obj <- ggplot(plottable_aucs, 
-                       aes(x = wflow_id, y = auc, fill = negative)) +
-      geom_col() + 
-      theme_bw() +
-      theme(legend.position = "none") +
-      coord_flip() +
-      labs(x = "Variable removed", y = "Change in AUC") +
-      ggtitle(paste0(v, " effect of removing variables on AUC"))
-    
-    if (m) {
-      plot_obj <- plot_obj +
-        facet_wrap(~month, nrow = 4, ncol = 3)
-    } else {
-      plot_obj <- plot_obj +
-        geom_pointrange(aes(ymin = min, ymax = max), size = .35)
-    }
-    
-    save_analysis(plot_obj, v, save_name)
-  }
-}
-
-# plot false positives/negatives
-heatmap_geography <- function(v) {
-  results <- get_testing(v) |>
-    mutate(heatmap_val = paste0(patch, .pred_class))
+  title <- paste(v, "AUC (2.5%, 50%, 97.5%):", 
+                 overall$auc |> quantile(c(.025, .5, .975)) |> 
+                   round(3) |> paste(collapse = ", "))
   
-  # color schema
-  status <- list("00" = "True Negative",
-                 "01" = "False Positive", 
-                 "10" = "False Negative", 
-                 "11" = "True Positive")
-  # palette for colors 
-  pal <- c("00" = "gray90",
-           "01" = "red3", 
-           "10" = "dodgerblue2", 
-           "11" = "goldenrod1")
-  
-  plot <- ggplot(results, aes(x = lon, y = lat)) +
-    geom_point(aes(col = heatmap_val), cex = .3) +
-    scale_color_manual(labels = status,
-                       values = pal) + 
-    geom_polygon(data = ggplot2::map_data("world"), 
-                 aes(long, lat, group = group)) +
-    coord_quickmap(xlim = c(-77.0, -42.5),
-                   ylim = c(36.5,  56.7),
-                   expand = TRUE) + 
+  plot <- ggplot() + 
+    geom_ribbon(data = res, 
+                aes(x = month, ymax = upper, ymin = lower), 
+                fill = "yellowgreen", alpha = .5, group = 1) + 
+    geom_line(data = res, aes(x = month, y = mean), group = 1) +
+    coord_cartesian(ylim = c(.0, 1)) +
     theme_bw() +
-    theme(panel.grid.minor = element_blank(),
-          panel.grid.major = element_blank(),
-          axis.title = element_blank(),
-          legend.position = "bottom") +
-    guides(colour = guide_legend(override.aes = list(size=2))) +
-    labs(color = "Status") +
-    ggtitle(paste(v, "location of Accurate/Inaccurate Predictions"))
+    labs(y = "AUC", x = "Month") + 
+    ggtitle(title)
   
-  save_analysis(plot, v, "geographic_heatmap")
+  save_analysis(plot, v, "auc_by_month")
 }
 
-# plot model accuracy vs variable values 
-accuracy_vs_variables <- function(v,
-                                  position = c("fill", "stack")[1]) {
-  results <- get_testing(v) |>
-    mutate(heatmap_val = paste0(patch, .pred_class) |>
-             factor(levels = c("00", "11", "10", "01")))
+# Calculates TSS by month 
+tss_by_month <- function(v) {
   
-  # color schema
-  status <- list("00" = "True Negative",
-                 "11" = "True Positive",
-                 "10" = "False Negative",
-                 "01" = "False Positive")
-  pal <- c("00" = "gray90", 
-           "11" = "goldenrod1", 
-           "10" = "dodgerblue2",
-           "01" = "red3")
+  test_res <- get_testing(v)
   
-  #helper
-  plot_var <- function(var, title = NULL) {
-    if (is.null(title)) {title <- var}
+  overall <- test_res |>
+    group_by(wkf_id) |>
+    summarize(tss = sens_vec(patch, .pred_class, event_level = "second") +
+                    spec_vec(patch, .pred_class, event_level = "second") - 1, 
+              .groups = 'keep') |>
+    ungroup()
+  
+  # by quantile
+  res <- test_res |>
+    group_by(month, wkf_id) |>
+    summarize(tss = sens_vec(patch, .pred_class, event_level = "second") +
+                spec_vec(patch, .pred_class, event_level = "second") - 1, 
+              .groups = 'keep') |>
+    na.omit() |>
+    group_by(month) |>
+    summarize(lower = quantile(tss, .025), 
+              mean = quantile(tss, .5), 
+              upper = quantile(tss, .975),
+              .groups = 'keep')
+  
+  title <- paste(v, "TSS (2.5%, 50%, 97.5%):", 
+                 overall$tss |> quantile(c(.025, .5, .975)) |> 
+                   round(3) |> paste(collapse = ", "))
+  
+  plot <- ggplot() + 
+    geom_ribbon(data = res, 
+                aes(x = month, ymax = upper, ymin = lower), 
+                fill = "lightblue", alpha = .5, group = 1) + 
+    geom_line(data = res, aes(x = month, y = mean), group = 1) +
+    coord_cartesian(ylim = c(.0, 1)) +
+    theme_bw() +
+    labs(y = "True Skill Statistic", x = "Month") + 
+    ggtitle(title)
+  
+  save_analysis(plot, v, "tss_by_month")
+}
+
+#' Returns variable importance ranking for a version and saves bar chart to file
+#' 
+#' @param v the version
+#' @return list of variables from most to least important, NULL if error 
+var_imp <- function(v) {
+  vimps <- get_v_wkfs(v) |>
+    map(extract_fit_parsnip) |>
+    map(vi)
+  
+  vimp <- vimps |> 
+    bind_rows() |>
+    group_by(Variable) |>
+    summarize(Importance = mean(Importance), .groups = "keep") |>
+    ungroup()
+  
+  month <- vimp |>
+    filter(startsWith(Variable, "month")) |>
+    summarize(Variable = 'month', 
+              Importance = sum(Importance), .groups = 'keep')
+  
+  agg_vimp <- vimp |>
+    filter(!startsWith(Variable, "month")) |>
+    arrange(Importance)
+  agg_vimp <- bind_rows(month, agg_vimp) |>
+    mutate(across(Variable, ~var_abb()[Variable] |> unlist())) |>
+    mutate(across(Variable, ~factor(.x, levels = Variable)))
+  
+  p <- ggplot(agg_vimp, aes(x = Importance, y = Variable)) +
+    theme(axis.title.y = element_blank()) +
+    theme_bw() +
+    theme(axis.title.y = element_blank()) +
+    geom_bar(stat = 'identity', fill = "dodgerblue4")
+  
+  save_analysis(p, v, "var_importance")
+  
+  vimp$Variable
+  
+  # tryCatch({
+  #   vip(model) |>
+  #     save_analysis(v, "var_importance")
+  #   vi(model)$Variable
+  # }, error = function(e) {
+  #   NULL
+  # })
+}
+
+#' generate response curves for a desired version
+#' 
+#' @param v the version
+#' @param data the data used to determine ranges for model
+#' @param vars the vars included
+#' @param num_pts the resolution of the lines 
+#' @param mid_mon the middle month
+#' @param log_bathy convert bathymetry to log scale?
+#' @param vimp the list of most important variables
+#' @param post post-prediction correction function, if applicable
+#' @return response curves separated by month and variable 
+response_curves_data <- function(v,
+                                 data,
+                                 vars = c("Bathy_depth", "SST", #"SSS", 
+                                          "Tbtm", "MLD", "Sbtm", "Vel"),
+                                 num_pts = 100,
+                                 mid_mon = 8,
+                                 log_bathy = TRUE,
+                                 show_no_post = TRUE,
+                                 same_y = FALSE,
+                                 save_plot = TRUE,
+                                 patch_only_medians = FALSE,
+                                 bottom_latitude = NULL,
+                                 vimp = NULL,
+                                 post = NULL) {
+  
+  vdata <- data |>
+    mutate(Vel = sqrt(U^2 + V^2))
+  
+  # retrieving workflow
+  wkfs <- get_v_wkfs(v)
+  
+  # acquiring quantile ranges of covariates - max, min, median, 95% range
+  quantiles <- vdata |>
+    select(all_of(vars)) |>
+    apply(2, function(x) quantile(x, probs = c(0, .025, .5, .975, 1)))
+  
+  # COMMENT OUT IF NOT REPLACING TBTM
+  # quantiles[3, 3] <- 4.5
+  
+  # generating steps for each covariate between max and min
+  range_steps <- map2_dfc(quantiles['0%',], quantiles['100%',], 
+                          ~seq(.x, .y, length.out = num_pts))
+  
+  # Replacing medians as needed
+  if (patch_only_medians) {
+    quantiles['50%',] <- vdata |> 
+      filter(patch == "1") |>
+      select(all_of(vars)) |>
+      apply(2, function(x) quantile(x, probs = c(.5)))
+  } else if (!is_null(bottom_latitude)) {
+    quantiles['50%',] <- vdata |>
+      filter(lat > 42) |>
+      select(all_of(vars)) |>
+      apply(2, function(x) quantile(x, probs = c(.5)))
+  }
+  
+  medians <- quantiles['50%',] |>
+    as_tibble_row() |>
+    mutate(month = as.factor(mid_mon))
+  
+  # Table summarizing median, 95% range for all covariates
+  if (log_bathy) {
+    quantiles[,"Bathy_depth"] <- log10(quantiles[,"Bathy_depth"] + 1)
+  }
+  quant_table <- quantiles |>
+    base::t() |>
+    as_tibble(rownames = "variable") |>
+    select(-all_of(c("0%", "100%"))) |>
+    bind_rows(list(variable = "month", `2.5%` = mid_mon, 
+                   `50%` = mid_mon, `97.5%` = mid_mon))
+  
+  # helper that generates evaluation strip and runs predictions
+  var_response <- function(var, post_func = post) {
     
-    plot <- ggplot(results, aes_string(x = var, 
-                               fill = "heatmap_val")) +
-      geom_histogram(position = position,
-                     bins = 30) +
-      geom_vline(aes_string(xintercept = paste0("median(", var, ")"))) +
-      theme_bw() +
-      scale_fill_manual(labels = status,
-                        values = pal) +
-      labs(x = title, fill = "Prediction") +
-      ggtitle(paste(v, title))
+    base <- bind_cols(lat = NA, 
+                      lon = NA, 
+                      select(medians, -all_of(var)))
     
-    if (position == "fill") {
-      plot <- plot +
-        scale_y_continuous(name = "Percent of Bin Count", 
-                           labels = scales::percent)
+    # input dataframe for workflows
+    in_df <- (if(var == "month"){
+      bind_cols(base, month = 1:12 |> as.factor())
+    } else {
+      bind_cols(base, select(range_steps, all_of(var)))
+    }) |>
+      rename(V = Vel) |>
+      mutate(U = 0)
+    
+    # Predicting, binding value
+    model_preds <- apply_quantile_preds(wkfs, in_df, c(.025, .5, .975)) |>
+      bind_cols(value = pull(in_df, ifelse(var == "Vel", "V", var)) |>
+                  as.numeric()) |>
+      mutate(variable = var)
+    
+    if(log_bathy && var == "Bathy_depth") {
+      model_preds <- model_preds |>
+        mutate(value = log10(value + 1))
+    }
+    if(show_no_post && !is.null(post) && var == "Bathy_depth") { #&& var == "Bathy_depth"
+      model_preds <- model_preds |>
+        mutate(no_post = `50%`)
     }
     
+    if (!is.null(post_func)) {
+      bathymetry_col <- (if(var == "Bathy_depth") {
+        range_steps$Bathy_depth
+      } else {
+        medians[["Bathy_depth"]]
+      })
+      
+      model_preds <- model_preds |>
+        mutate(bathymetry_col = bathymetry_col) |>
+        mutate(across(ends_with("%"), 
+                      function(x) {x * post_func(bathymetry_col)})) |>
+        select(-bathymetry_col)
+    }
+    
+    model_preds
+  }
+  
+  # creating plottable object
+  eval_strip <- c(colnames(quantiles), "month") |>
+    lapply(var_response) |>
+    bind_rows()
+  
+  if (!is_null(vimp)) {
+    vimp <- gsub("month[^ ]*", "month", vimp) |>
+      unique()
+    vimp <- var_abb()[vimp] |> unlist()
+    if (log_bathy) {
+      vimp["Bathy_depth"] <- "Bathymetry (log 10)"
+    }
+    
+    quant_table <- quant_table |>
+      mutate(across(variable, ~vimp[.x] |> unlist())) |>
+      mutate(across(variable, ~factor(.x, levels = vimp)))
+    
+    eval_strip <- eval_strip |>
+      mutate(across(variable, ~vimp[.x] |> unlist())) |>
+      mutate(across(variable, ~factor(.x, levels = vimp)))
+  }
+  
+  # plotting
+  plot <- ggplot(quant_table) +
+    geom_rect(aes(xmin = `2.5%`, xmax = `97.5%`, ymin = -Inf, ymax = Inf),
+              fill = "red", alpha = .12) +
+    geom_ribbon(data = eval_strip, 
+                aes(x = value, ymax = `97.5%`, ymin = `2.5%`),
+                fill = "grey50", alpha = .8) +
+    geom_line(data = eval_strip, 
+              mapping = aes(x = value, y = `50%`)) +
+    facet_wrap(~ variable, scales = ifelse(same_y, "free_x", "free")) +
+    theme_bw() +
+    theme(legend.position = "none") +
+    labs(x = "Variable value", y = "Patch probability") +
+    ggtitle(paste(v, 
+                  ifelse(is_null(post), "tau-b", "tau-h"), 
+                  "Response Curves"))
+  
+  if (show_no_post && !is.null(post)) {
+    plot <- plot + 
+      geom_line(data = eval_strip, aes(x = value, y = no_post), 
+                linetype = 6, color = "blue")
+  }
+
+  plot <- plot +
+    geom_vline(aes(xintercept = `50%`), color = "red")
+  
+  if (save_plot) {
+    savename <- paste0("response_curves_mon", mid_mon, 
+                       ifelse(!is_null(post), "_corrected", ""),
+                       ifelse(show_no_post, "WNoPost", ""),
+                       ifelse(log_bathy, "_logbathy", ""),
+                       ifelse(same_y, "_fixedY", ""),
+                       ifelse(!is_null(bottom_latitude), paste0("_lat", bottom_latitude), ""))
+    save_analysis(plot, v, savename)
+  } else {
     plot
   }
-  
-  names <- colnames(results)
-  vars <- names[names %in% mon_vars()]
- 
-  lapply(vars, plot_var) |>
-    append(plot_var("log10(Bathy_depth + 1)", 
-                    "Bathymetry (log10(x + 1))") |>
-             list()) |>
-    save_analysis(v, paste0("vars_heatmaps_", position))
 }
 
-# create plots of abundance vs. predicted probability
-pred_v_abundance <- function(v) {
-  # retrieving data -- predictions merged with abundance 
-  ref <- retrieve_vars(v, "abundance")
+# creates a 2D response curve plot
+response_curve_2var <- function(v,
+                                data,
+                                all_vars = c("Bathy_depth", "SST", "SSS", 
+                                             "Tbtm", "MLD", "Sbtm", "Vel"),
+                                var1 = "Bathy_depth",
+                                var2 = "SST",
+                                mid_mon = 8,
+                                patch_only_medians = FALSE,
+                                post_func = NULL) {
   
-  # performing correlation test
-  cortest <- cor.test(ref$abundance, ref$.pred_1, 
-                      method = "spearman", exact = FALSE)
+  vdata <- data |>
+    mutate(Vel = sqrt(U^2 + V^2))
   
-  # creating plottable objects
-  base <- ggplot(ref, aes(x = log10(abundance + 1), y = .pred_1)) +
-    theme_bw() +
-    labs(y = "Patch Probability", x = "Abundance (log10(x + 1))") +
-    ggtitle("Patch probability vs. Abundance") +
-    coord_cartesian(expand = TRUE)
+  # retrieving workflow
+  wkfs <- get_v_wkfs(v)
   
-  density <- base +
-    theme(legend.position = "bottom") +
-    geom_hex(bins = 45) +
-    #stat_density_2d(aes(fill = ..level..), geom = "polygon") +
-    #scale_fill_distiller(palette = "Purples", direction = 1) +
-    scale_fill_viridis(direction = -1) +
-    geom_hline(yintercept = .5)
+  # acquiring quantile ranges of choice variables - max, min, median, 95% range
+  quantiles <- vdata |>
+    select(all_of(c(var1, var2))) |>
+    apply(2, function(x) quantile(x, probs = c(0, .025, .5, .975, 1)))
   
-  points <- base +
-    geom_point(alpha = .3) +
-    geom_hline(yintercept = .5, color = "red")
+  # generating steps for choice variables between max and min
+  range_steps <- map2_dfc(quantiles['0%',], quantiles['100%',], 
+                          ~seq(.x, .y, length.out = 50))
   
-  points_color <- base +
-    geom_point(aes(col = patch), alpha = .5) +
-    scale_color_manual(values = c("orange", "blue")) + 
-    geom_hline(yintercept = .5, color = "black")
+  medians <- (if(patch_only_medians) {
+                vdata |>
+                  filter(patch == "1")
+              } else {
+                vdata
+              }) |>
+    select(all_of(all_vars)) |>
+    apply(2, function(x) quantile(x, probs = c(.5))) |>
+    as_tibble_row() |>
+    mutate(month = as.factor(mid_mon))
   
-  annotate_help <- function(plot) {
-    plot +
-      annotate("text", x = 1, y = c(.9, .85, .8), 
-               label = c(paste("rho =", round(cortest$estimate, 4)), 
-                         paste("p =", cortest$p.value), 
-                         paste("n =", nrow(ref))))
+  quant_table <- quantiles |>
+    base::t() |>
+    as_tibble(rownames = "variable") |>
+    select(-all_of(c("0%", "100%")))
+  
+  base <- bind_cols(lat = NA, 
+                    lon = NA,
+                    select(medians, -all_of(c(var1, var2))))
+  
+  in_df <- bind_cols(base,
+                     expand.grid(var1 = range_steps[[1]],
+                                 var2 = range_steps[[2]])) |>
+    rename(V = Vel, !!var1 := var1, !!var2 := var2) |>
+    mutate(U = 0)
+  
+  model_preds <- apply_quantile_preds(wkfs, in_df, .5) |>
+    bind_cols(var1_value = pull(in_df, ifelse(var1 == "Vel", "V", var1)) |> as.numeric(),
+              var2_value = pull(in_df, ifelse(var2 == "Vel", "V", var2)) |> as.numeric())
+    
+  # applying post correction, if applicable
+  if (!is.null(post_func)) {
+    bathymetry_col <- (if(var1 == "Bathy_depth" || var2 == "Bathy_depth") {
+      in_df$Bathy_depth
+    } else {
+      medians[["Bathy_depth"]]
+    })
+    
+    model_preds <- model_preds |>
+      mutate(bathymetry_col = bathymetry_col) |>
+      mutate(`50%` = `50%` * post_func(bathymetry_col)) |>
+      select(-bathymetry_col)
   }
   
-  list(density, points, points_color) |>
-    lapply(annotate_help) |>
-    save_analysis(v, "predictions_vs_abundance")
+  # plotting
+  ggplot(model_preds) +
+    geom_raster(aes(x = var1_value, y = var2_value, fill = `50%`)) +
+    theme_bw() +
+    labs(x = var1, y = var2, fill = "prob") +
+    ggtitle(paste(v, var1, var2,
+                  ifelse(is_null(post), "tau-b", "tau-h"), 
+                  "Response Raster")) +
+    scale_fill_viridis(option = "viridis") +
+    geom_vline(aes(xintercept = medians[[var1]]), color = "white") +
+    geom_hline(aes(yintercept = medians[[var2]]), color = "white")
 }
 
 # create plots of abundance vs. dry weight
-pred_v_dryweight <- function(v, threshold_method) {
-  # retrieving data -- predictions merged with abundance 
-  ref <- retrieve_vars(v, "dry_weight", threshold_method)
+pred_v_dryweight <- function(v, threshold_method, model_preds) {
+  
+  ref <- data_from_config(read_config(v)$training_data, 
+                          vars_override = "dry_weight",
+                          threshold_method = threshold_method) |>
+    select(patch, dry_weight) |>
+    bind_cols(.pred_1 = model_preds$`50%`)
   
   # performing correlation test
   cortest <- cor.test(ref$dry_weight, ref$.pred_1, 
@@ -256,8 +436,8 @@ pred_v_dryweight <- function(v, threshold_method) {
   # creating plottable objects
   base <- ggplot(ref, aes(x = log10(dry_weight + 1), y = .pred_1)) +
     theme_bw() +
-    labs(y = "Patch probability", x = "Dry weight (ug)(log10(x + 1))") +
-    ggtitle("Patch probability vs. dry weight") +
+    labs(y = "Raw Patch probability", x = "Dry weight (ug)(log10(x + 1))") +
+    ggtitle("Raw patch probability vs. dry weight") +
     coord_cartesian(expand = TRUE)
   
   density <- base +
@@ -270,16 +450,17 @@ pred_v_dryweight <- function(v, threshold_method) {
   
   points <- base +
     geom_point(alpha = .3) +
-    geom_hline(yintercept = .5, color = "red")
+    geom_hline(yintercept = .5, color = "red") + 
+    geom_vline(xintercept = 30000*195, color = "red")
   
   points_color <- base +
-    geom_point(aes(col = patch), alpha = .5) +
+    geom_point(aes(col = patch), alpha = .2) +
     scale_color_manual(values = c("orange", "blue")) + 
     geom_hline(yintercept = .5, color = "black", linewidth = .5) + 
     labs(col = "Patch")
   
-  points_smooth <- base +
-    geom_point(aes(col = patch), alpha = .5) +
+  points_smooth <- base + 
+    geom_point(aes(col = patch), alpha = .2) +
     scale_color_manual(values = c("orange", "blue")) + 
     labs(col = "Patch") + 
     geom_smooth(col = 'black', linewidth = .75)
@@ -297,239 +478,44 @@ pred_v_dryweight <- function(v, threshold_method) {
     save_analysis(v, "predictions_vs_dryweight")
 }
 
-#' generate response curves for a desired version
-#' 
-#' @param v the version
-#' @param folds, the data folds used to train model variations. If NULL, uses
-#'   original workflow.
-#' @param num_pts the resolution of the lines 
-#' @return response curves separated by month and variable 
-annual_response_curves_data <- function(v,
-                                        data,
-                                        vars = c("Bathy_depth", "SST", "Sbtm", "Tbtm",
-                                                 "MLD", "SSS", "Vel"),
-                                        wkf = NULL,
-                                        folds = NULL, 
-                                        num_pts = 50,
-                                        mid_mon = 6,
-                                        vimp = NULL) {
+# plot false positives/negatives
+heatmap_geography <- function(v, data, model_preds) {
   
-  vdata <- data |>
-    mutate(Vel = sqrt(U^2 + V^2)) |>
-    select(all_of(vars))
+  results <- data |>
+    transmute(lat, lon,
+              heatmap_val = paste0(patch,
+                                   as.numeric(model_preds$`50%` >= .5)))
   
-  # retrieving workflow
-  wkf <- get_v_wkf(v, wkf)
-  if (!is.null(folds)) {
-    wkf <- folds |>
-      rowwise() |>
-      transmute(wkf = fit(wkf, 
-                          training(splits)) |>
-                  list(),
-                fold = id)
-  }
+  # color schema
+  status <- list("00" = "True Negative",
+                 "01" = "False Positive", 
+                 "10" = "False Negative", 
+                 "11" = "True Positive")
+  # palette for colors 
+  pal <- c("00" = "#EAEAEA",
+           "01" = "#54BF21", 
+           "10" = "#CD0000",  
+           "11" = "#FFD82E")
   
-  # acquiring quantile ranges - max, min, median, 90% range
-  quantiles <- vdata |>
-    apply(2, function(x) quantile(x, probs = c(0, .05, .5, .95, 1)))
-  
-  range_steps <- map2_dfc(quantiles['0%',], quantiles['100%',], 
-                          ~seq(.x, .y, length.out = num_pts))
-  
-  medians <- quantiles['50%',] |>
-    as_tibble_row() |>
-    mutate(month = as.factor(mid_mon))
-  
-  quant_table <- quantiles |>
-    base::t() |>
-    as_tibble(rownames = "variable") |>
-    select(-all_of(c("0%", "100%"))) |>
-    bind_rows(list(variable = "month", `5%` = mid_mon, 
-                   `50%` = mid_mon, `95%` = mid_mon))
-  
-  # helper that generates evaluation strip and runs predictions
-  var_response <- function(var) {
-    
-    base <- bind_cols(lat = NA, 
-                      lon = NA, 
-                      select(medians, -all_of(var)))
-    
-    in_df <- (if(var == "month"){
-      bind_cols(base, month = 1:12 |> as.factor())
-    } else {
-      bind_cols(base, select(range_steps, all_of(var)))
-    }) |>
-      rename(V = Vel) |>
-      mutate(U = 0)
-    
-    model_preds <- if(!is.null(folds)) {
-      map2(wkf$wkf, wkf$fold, 
-           ~ augment(.x, in_df) |>
-             mutate(fold = .y)) |>
-        bind_rows()
-    } else {
-      augment(wkf, in_df) |>
-        mutate(fold = "Fold1")
-    }
-    
-    # augment(wkf, in_df)
-    model_preds |>
-      rename(Vel = V) |>
-      select(all_of(var), fold, .pred_1) |>
-      rename(value = var) |>
-      mutate(value = as.numeric(value),
-             variable = var)
-  }
-  
-  # creating plottable object
-  eval_strip <- c(colnames(vdata), "month") |>
-    lapply(var_response) |>
-    bind_rows()
-  
-  if (!is_null(vimp)) {
-    vimp <- gsub("month[^ ]*", "month", vimp) |>
-      unique()
-    vimp <- var_abb()[vimp] |> unlist()
-    
-    quant_table <- quant_table |>
-      mutate(across(variable, ~var_abb()[variable] |> unlist())) |>
-      mutate(across(variable, factor, levels = vimp))
-    
-    eval_strip <- eval_strip |>
-      mutate(across(variable, ~var_abb()[variable] |> unlist())) |>
-      mutate(across(variable, factor, levels = vimp))
-  }
-  
-  # plotting
-  plot <- ggplot(quant_table) +
-    geom_rect(aes(xmin = `5%`, xmax = `95%`, ymin = -Inf, ymax = Inf),
-              fill = "red", alpha = .08) +
-    geom_line(data = eval_strip, 
-              mapping = aes(x = value, y = .pred_1, col = fold)) +
-    #scale_color_brewer(palette="Dark2") +
-    scale_color_manual(values = as.vector(yarrr::piratepal("basel"))) +
-    geom_vline(aes(xintercept = `50%`), color = "red") +
-    facet_wrap(~ variable, scales = "free") +
+  plot <- ggplot(results, aes(x = lon, y = lat)) +
+    geom_point(aes(col = heatmap_val), cex = .3, alpha = .6) +
+    scale_color_manual(labels = status,
+                       values = pal) + 
+    geom_polygon(data = ggplot2::map_data("world"), 
+                 aes(long, lat, group = group)) +
+    coord_quickmap(xlim = c(-77.0, -42.5),
+                   ylim = c(36.5,  56.7),
+                   expand = TRUE) + 
     theme_bw() +
-    theme(legend.position = "none") +
-    labs(x = "Variable value", y = "Patch probability") +
-    ggtitle(paste(v, "Response Curves (Train/Test Data Range)"))
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank(),
+          axis.title = element_blank(),
+          legend.position = "bottom") +
+    guides(colour = guide_legend(override.aes = list(size=2))) +
+    labs(color = "Status") +
+    ggtitle(paste(v, "location of Accurate/Inaccurate Raw Patch"))
   
-  filename <- ifelse(is.null(folds), 
-                     "response_curve_ann_data", "response_curve_ann_folded_data")
-  save_analysis(plot, v, filename)
-}
-
-#' Returns variable importance ranking for a version and saves bar chart to file
-#' 
-#' @param v the version
-#' @param wkf optional workflow 
-#' @return list of variables from most to least important, NULL if error 
-var_imp <- function(v, wkf = NULL) {
-  model <- get_v_wkf(v, wkf) |>
-    extract_fit_parsnip()
-  
-  vimp <- vi(model)
-  
-  month <- vimp |>
-    filter(startsWith(Variable, "month")) |>
-    summarize(Variable = 'month', 
-              Importance = sum(Importance), .groups = 'keep')
-  
-  data <- vimp |>
-    filter(!startsWith(Variable, "month")) |>
-    arrange(Importance)
-  data <- bind_rows(month, data) |>
-    mutate(across(Variable, ~var_abb()[Variable] |> unlist())) |>
-    mutate(across(Variable, factor, levels = Variable))
-  
-  p <- ggplot(data, aes(x = Importance, y = Variable)) +
-    theme(axis.title.y = element_blank()) +
-    geom_bar(stat = 'identity')
-  
-  save_analysis(p, v, "var_importance")
-  
-  vimp$Variable
-
-  # tryCatch({
-  #   vip(model) |>
-  #     save_analysis(v, "var_importance")
-  #   vi(model)$Variable
-  # }, error = function(e) {
-  #   NULL
-  # })
-}
-
-roc_curves_w_ci <- function(v, data) {
-   wkf <- get_v_wkf(v)
-   # folds <- data |>
-   #   mc_cv(data, prop = 3/4, times = 25, strata = patch)
-   num = 100
-   folds <- tibble(data = sample(5e6, num, replace = TRUE) |>
-                     map(~initial_split(data, prop = 3/4, strata = patch, seed = .x)),
-                   foldid = 1:num) |>
-     rowwise()
-   
-   wkfs <- folds |>
-     mutate(fit = fit(wkf, training(data)) |> list())
-   
-   wkfst <- wkfs |>
-     apply(1, function(x) augment(x[[3]], testing(x[[1]])) |>
-             mutate(id = x[[2]]))
-   
-   wkfsd <- wkfst |>
-     bind_rows() |>
-     select(month, patch, .pred_1, .pred_0, id)
-   wkfsd |>
-     readr::write_csv(v_path(v, "model", "repeat_results.csv.gz"))
-   
-   overall <- wkfsd |>
-     group_by(id) |>
-     summarize(auc = roc_auc_vec(patch, .pred_1, event_level = "second"), 
-               .groups = 'keep') |>
-     ungroup()
-   
-   overall$auc |> quantile(c(.025, .5, .975))
-   roc_auc(get_testing(v), patch, .pred_1, event_level = "second")
-   
-   overall_stats <- lm(auc ~ 1, overall) |>
-     confint()
-   overall_stats
-   
-   # by standard deviation
-   res <- wkfsd |>
-     group_by(month, id) |>
-     summarize(auc = roc_auc_vec(patch, .pred_1, event_level = "second"), 
-               .groups = 'keep') |>
-     na.omit() |>
-     group_by(month) |>
-     summarize(confint = lm(auc~1, list(auc)) |> confint()) |>
-     transmute(month, lower = confint[,1], upper = confint[,2])
-   
-   # by quantile
-   res <- wkfsd |>
-     group_by(month, id) |>
-     summarize(auc = roc_auc_vec(patch, .pred_1, event_level = "second"), 
-               .groups = 'keep') |>
-     na.omit() |>
-     group_by(month) |>
-     summarize(lower = quantile(auc, .025), 
-               mean = quantile(auc, .5), 
-               upper = quantile(auc, .975),
-               .groups = 'keep')
-   
-   mon_aucs <- get_testing(v) |>
-     group_by(month) |>
-     summarize(auc = roc_auc_vec(patch, .pred_1, event_level = "second")) |>
-     ungroup()
-   
-   ggplot() + 
-     geom_ribbon(data = res, 
-                 aes(x = month, ymax = upper, ymin = lower), 
-                 fill = "grey70", alpha = .5, group = 1) + 
-     geom_line(data = res, aes(x = month, y = mean), group = 1) +
-     geom_point(data = mon_aucs, aes(x = month, y = auc), color = "red") +
-     coord_cartesian(ylim = c(.0, 1)) +
-     labs(y = "AUC", x = "Month")
+  save_analysis(list(plot, plot + facet_wrap(~heatmap_val)),
+                v, "geographic_heatmap")
 }
 

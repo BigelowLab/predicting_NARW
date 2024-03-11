@@ -1,6 +1,6 @@
 
 data <- 
-  data_from_config(read_config("v5.10")$training_data,
+  data_from_config(read_config("v5.20.1")$training_data,
                    threshold_method = flat_tm(30000*195))
 
 count(data, patch) |> mutate(prop = n/sum(n))
@@ -80,7 +80,7 @@ if (FALSE) {
   autoplot(res, metric = "roc_auc")
   
   readr::write_csv(collect_metrics(res),
-                   v_path("v4.04.01", "model", "tune_results.csv"))
+                   v_path("v6.03", "model", "tune_results.csv"))
   
   final_res <- select_best(res, metric = "roc_auc")
   
