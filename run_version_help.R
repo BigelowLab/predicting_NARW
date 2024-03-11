@@ -19,7 +19,8 @@ get_workflow <- function(training_data,
     step_normalize(all_numeric_predictors())
 
   if (model_name %in% c("Boosted Regression Tree", 
-                        "GAM", "Logistic Regression")) {
+                        "GAM", "Logistic Regression",
+                        "MLP Neural Network")) {
     recipe_spec <- recipe_spec |>
       step_dummy(all_nominal_predictors())
   }
@@ -90,9 +91,9 @@ initial_analyse <- function(v, aug) {
   
   list(roc_curve = roc_curve, 
        heatmap = heatmap, 
-       mon_aucs = mon_aucs, 
-       patch_plot = plot_ae(aug, "patch", 
-                            paste(v, "patch values")))
+       mon_aucs = mon_aucs) 
+       # patch_plot = plot_ae(aug, "patch", 
+       #                      paste(v, "patch values")))
 }
 
 #' Creates a workflow version 
@@ -130,6 +131,10 @@ wkf_version <- function(data_split,
     setwd(path)
     
     # saving objects
+    if (model_types[[1]]$name == "MLP Neural Network") {
+      fit_wkf <- bundle(fit_wkf)
+    }
+    
     fit_wkf |>
       saveRDS("model_fit.csv.gz")
     aug |>
@@ -149,32 +154,5 @@ wkf_version <- function(data_split,
   }
   
   fit_wkf
-}
-
-### PLOTS PREDICTIONS
-
-#' Generates predictions and plots for the desired model version
-#' 
-#' @param v chr, the model version to run
-#' @param save_months numeric vector of months
-#' @return saves predictions and plots to file system and returns TRUE 
-#'   if code ran without erroring
-plots_predictions <- function(v = "v3.00", 
-                              downsample = c(0, 1, 2, 3)[1],
-                              save_months = 1:12,
-                              scenarios = 1:5,
-                              verbose = TRUE, 
-                              comparison_scenario = 5) {
-  #from predictions.R
-  get_predictions(v, 
-                  verbose = verbose, 
-                  save_months = save_months,
-                  save_scenarios = scenarios,
-                  downsample = downsample)
-  #from plots.R
-  get_plots(v,
-            plot_scenarios = scenarios,
-            comparison_scenario = comparison_scenario,
-            downsample = downsample)
 }
 

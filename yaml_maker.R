@@ -1,34 +1,27 @@
-v <- "v4.02.04"
-interval <- "mon"
+v <- "v6.02"
 overwrite <- TRUE
 
 # training data 
 strata = "patch"
-brickman_data_config <- list(interval = interval,
-                             vars = c("Bathy_depth", "MLD", "SST", "Sbtm", "SSS",
-                                      "Tbtm", "U", "V"),
+brickman_data_config <- list(interval = "mon",
+                             vars = c("Bathy_depth", "MLD", "SST", "Sbtm", #"SSS",
+                                      "Tbtm", "U", "V"), #####
                              transform = c("Vel = sqrt(U^2 + V^2)",
                                            "Bathy_depth = log10(Bathy_depth + 1)",
                                            "step_normalize()")) 
 species_data_config <- list(source = c("azmp", "ecomon"), 
-                            species = "C. finmarchicus", 
+                            species = "C. hyperboreus", #####
                             staged = FALSE,
-                            base = 40000*195,
-                            slope = 1000*195,
+                            threshold = list(pre = "flat_tm(30000*195)",
+                                             post = "stephane_final(state_val = 'rest')"), #######
                             date_range = list(start =  "1990-01-01",
                                               end = "2015-12-31"),
-                            vertical_correction = FALSE)
+                            vertical_correction = FALSE) #####
 # model
-seed <- 700
+seed <- 800
 model_split <- FALSE
 
 # engines
-gam <- list(name = "GAM",
-            engine = "mgcv",
-            select_features = TRUE, 
-            adjust_deg_free = 1, 
-            k = c(18, 24, 25, 18, 18, 23, 20))
-
 lg <- list(name = "Logistic Regression", 
            engine = "glm", 
            family = "binomial(link = logit)")
@@ -42,21 +35,20 @@ rf <- list(name = "Random Forest",
 
 brt <- list(name = "Boosted Regression Tree", 
             engine = "xgboost", 
-            trees = 1000,
-            tree_depth = 15,
-            learn_rate = .000132,
-            min_n = 13,
-            mtry = 4,
-            sample_size = .667,
-            loss_reduction = .0000725)
+            trees = 500,
+            learn_rate = .01,
+            tree_depth = 6,
+            mtry = 5,
+            min_n = 10)
 
 mlp <- list(name = "MLP Neural Network",
             engine = "keras",
-            hidden_units = 300,
-            dropout = .75, 
-            epochs = 25)
+            hidden_units = 5,
+            penalty = .01, 
+            epochs = 20,
+            activation = "relu")
 
-model_types <- list(brt)
+model_types <- list(brt) ####
 
 ### ASSEMBLY #############################################
 

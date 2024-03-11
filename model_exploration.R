@@ -1,7 +1,28 @@
 
-data <- data_from_config(read_config("v4.04.01")$training_data)
+data <- 
+  data_from_config(read_config("v5.10")$training_data,
+                   threshold_method = flat_tm(30000*195))
 
-count(data, patch)
+count(data, patch) |> mutate(prop = n/sum(n))
+
+# calculate optimal threshold
+if (FALSE) {
+  library(PresenceAbsence)
+  
+  data <- get_testing("v5.10") |>
+    transmute(PlotID = "test", observed = (patch |> as.numeric()) - 1, 
+              pred = .pred_1)
+  
+  optimal.thresholds(DATA = data,
+                     threshold = seq(0, .5, by = .01),
+                     na.rm = TRUE,
+                     opt.methods = c(1:3))
+  
+  #'         Method pred
+  #' 1      Default 0.50
+  #' 2    Sens=Spec 0.14
+  #' 3 MaxSens+Spec 0.10
+}
 
 set.seed(132)
 splits <- initial_split(data, strata = patch, prop = 3/4)
@@ -12,15 +33,17 @@ folds <- vfold_cv(train, v = 5, repeats = 1, strata = patch)
 # tuning boosted regression tree
 if (FALSE) {
   
-  tune <- readr::read_csv(v_path("v4.02.03", "model", "tune_results.csv"))
-  tune
+  #tune <- readr::read_csv(v_path("v4.02.03", "model", "tune_results.csv"))
+  #tune
   
   xgb_spec <- boost_tree(
-    trees = 1000, 
-    tree_depth = tune(), min_n = tune(), 
-    loss_reduction = tune(),              ## first three: model complexity
-    sample_size = tune(), mtry = tune(),  ## randomness
-    learn_rate = tune(),                  ## step size
+    trees = tune(), ## model complexity
+    tree_depth = tune(), 
+    min_n = 10, 
+    #loss_reduction = tune(),              
+    #sample_size = tune(),  ## randomness
+    mtry = 5, 
+    learn_rate = tune(),  ## step size
   ) |>
     set_engine("xgboost") |> 
     set_mode("classification")
@@ -36,14 +59,13 @@ if (FALSE) {
   workflow <- workflow(preprocessor = recipe, 
                        spec = xgb_spec)
   
-  xgb_grid <- grid_latin_hypercube(
-    tree_depth(),
-    min_n(),
-    loss_reduction(),
-    sample_size = sample_prop(),
-    mtry = mtry(c(3, 6)),
-    learn_rate(),
-    size = 7
+  xgb_grid <- grid_regular(
+    trees(c(500, 1000)),
+    tree_depth(c(2, 6)),
+    #loss_reduction(c(0,)),
+    #sample_size = sample_prop(c(.7, .9)),
+    learn_rate(c(-3, -1)),
+    levels = 3
   )
   
   res <- tune_grid(
@@ -55,13 +77,12 @@ if (FALSE) {
   
   best_res <- res |>
     show_best(10, metric = "roc_auc")
+  autoplot(res, metric = "roc_auc")
   
   readr::write_csv(collect_metrics(res),
                    v_path("v4.04.01", "model", "tune_results.csv"))
   
   final_res <- select_best(res, metric = "roc_auc")
-  
-  autoplot(res, metric = "roc_auc")
   
   # assumes train, workflow
   get_splits <- function(params) {
@@ -88,28 +109,42 @@ fit_resamples(workflow, folds) |>
 
 ######## TUNE THE MODEL ###########
 if (FALSE) {
-  param <- workflow |>
-    extract_parameter_set_dials() |>
-    update(epochs = epochs(range = c(10, 25)),
-           hidden_units = hidden_units(c(200, 300)),
-           dropout = dropout(range = c(.75, .9))) 
+  keras_spec <- mlp(
+    hidden_units = 5,
+    penalty = tune(),
+    epochs = 20,
+    activation = "relu"
+  ) |>
+    set_engine("keras") |>
+    set_mode("classification")
   
-  roc_res <- metric_set(roc_auc)
-  set.seed(22)
-  tuned <- workflow |>
-    tune_grid(folds, 
-              grid = param |> grid_regular(levels = 2),
-              metrics = roc_res)
-  set.seed(NULL)
+  recipe <- recipe(patch ~ ., data = train) |>
+    update_role(lat, lon, U, V, new_role = "ID") |>
+    step_log(Bathy_depth, offset = 1, base = 10) |>
+    step_mutate(Vel = sqrt(U^2 + V^2), role = "predictor") |>
+    step_normalize(all_numeric_predictors()) |> # retain for vip()
+    step_dummy(all_nominal_predictors())
   
-  autoplot(tuned) +
-    theme(legend.position = "top")
+  workflow <- workflow(preprocessor = recipe, 
+                       spec = keras_spec)
   
-  show_best(tuned) |> select(-.estimator)
   
-  best <- select_best(tuned, metric = "roc_auc")
-  model_spec <- finalize_model(model_spec, best)
-}
+  keras_grid <- grid_regular(
+    penalty(c(.01, .4), trans = NULL),
+    levels = 4
+  )
+  
+  res <- tune_grid(
+    workflow,
+    resamples = folds,
+    grid = keras_grid,
+    metrics = metric_set(roc_auc, accuracy)
+  )
+  
+  best_res <- res |>
+    show_best(10, metric = "roc_auc")
+  autoplot(res, metric = "roc_auc")
+} # neural network
 
 # use with collect_metrics(), autoplot()
 compare_workflows <- function(recipe_list, model_list) {
@@ -252,7 +287,29 @@ if (FALSE) {
                select(-(.metric:std_err)))
 }
 
-
+# optimal thresholds
+if (FALSE) {
+  config <- read_config("v5.10")
+  
+  # THRESHOLD METHOD DEFINITION - CHANGE THIS!!!!
+  tm <- flat_tm(30000*195)
+  post <- stephane_final(state_val = "rest")
+  
+  data <- data_from_config(config$training_data, 
+                           threshold_method = tm)
+  
+  optimal.thresholds(DATA = NULL, 
+                     threshold = 101, 
+                     which.model = 1:(ncol(DATA)-2), 
+                     model.names = NULL, na.rm = FALSE, 
+                     opt.methods = NULL, 
+                     req.sens, 
+                     req.spec, 
+                     obs.prev = NULL, 
+                     smoothing = 1, 
+                     FPC, 
+                     FNC)
+}
 
 
 

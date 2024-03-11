@@ -1,27 +1,115 @@
-source("/mnt/ecocast/projects/students/ojohnson/brickman/setup.R")
-library(groupdata2)
 library(viridis)
 library(RColorBrewer)
 library(lubridate)
 
+# plot cropped brickman variable values
+if (FALSE) {
+  dir <- "/mnt/ecocast/projectdata/calanusclimate/plots/brickman_cropped"
+  #dir.create(dir)
+  
+  present_vars <- brickman::read_brickman(scenario = "PRESENT", 
+                                          year = NA, 
+                                          vars = mon_vars(),
+                                          add = NULL, 
+                                          interval = "mon", 
+                                          form = "stars")
+  
+  for(var in c("SST", "Tbtm")) { #c("MLD", "SST", "Sbtm", "SSS", "Tbtm")) {
+    
+    brickman_var <- present_vars[var]
+    
+    # Vel
+    var <- "Vel"
+    brickman_var <- present_vars[c("U", "V")]
+    
+    variable_data <- 1:12 |>
+      map(~dplyr::slice(brickman_var, month, .x) |>
+            as_tibble() |>
+            na.omit() |>
+            filter(x >= -77 & x <= -42.5 & 
+                     y >= 36.5 & y <= 56.7) |>
+            #filter(get(var) != 0) |> # SST
+            mutate(Vel = sqrt(U^2 + V^2)))
+    
+    plots <- 1:12 |>
+      map(~ggplot(variable_data[[.x]], aes(x = x, y = y, col = get(var))) +
+            geom_point(cex = .28, pch = 15) +
+            theme_void() + 
+            # theme(panel.grid.minor = element_blank(),
+            #       panel.grid.major = element_blank(),
+            #       legend.position = "bottom") +
+            labs(col = var) + #x = "Latitude", y = "Longitude"
+            scale_color_viridis(option = "cividis", direction = -1) +
+            coord_quickmap() +
+            ggtitle(as_month(.x))) #paste(var, "(PRESENT) -", as_month(.x)))
+    
+    ggarrange(plotlist = plots, nrow = 3, ncol = 4, 
+              common.legend = TRUE, legend = "bottom") |>
+      annotate_figure(top = paste(var, "(PRESENT)"))
+    
+    pdf(paste0(dir, "/", var, ".pdf"))
+    1:12 |>
+      map(~ggplot(variable_data[[.x]], aes(x = x, y = y, col = get(var))) +
+            geom_point(cex = .28, pch = 15) +
+            theme_bw() + 
+            theme(panel.grid.minor = element_blank(),
+                  panel.grid.major = element_blank(),
+                  legend.position = "bottom") +
+            labs(x = "Latitude", y = "Longitude", col = var) +
+            scale_color_viridis(option = "cividis", direction = -1) +
+            coord_quickmap() +
+            ggtitle(paste(var, "(PRESENT) -", as_month(.x)))) |>
+      print()
+    dev.off()
+  }
+  
+  # bathymetry
+  if (FALSE) {
+    bathy <- brickman::read_brickman(scenario = "PRESENT", 
+                                     year = NA, 
+                                     vars = "Bathy_depth", 
+                                     add = NULL,
+                                     interval = "ann",
+                                     form="stars") |>
+      as_tibble() |>
+      na.omit() |>
+      filter(x >= -77 & x <= -42.5 & y >= 36.5 & y <= 56.7) |>
+      filter(Bathy_depth > 0)
+  
+    pdf(paste0(dir, "/Bathymetry.pdf"))
+    ggplot(bathy, aes(x = x, y = y, col = log10(Bathy_depth))) +
+      geom_point(cex = .28, pch = 15) +
+      theme_bw() + 
+      theme(panel.grid.minor = element_blank(),
+            panel.grid.major = element_blank(),
+            legend.position = "bottom") +
+      labs(x = "Latitude", y = "Longitude") +
+      scale_color_viridis(option = "cividis", direction = -1) +
+      coord_quickmap() +
+      ggtitle("Bathymetry")
+    dev.off()
+  }
+}
+
 # old eda files found in brickman/v2_files/datasets_code/eda.R
-
-setwd("/mnt/ecocast/projectdata/calanusclimate")
-
-library(corrplot)
-
-cor_mat <- readr::read_csv(file.path("/mnt/ecocast/projectdata/calanusclimate",
-                                     "src/tc_datasets/ae_dryweight_nooutliers_chyp.csv.gz")) |>
-  select(Bathy_depth:V, -land_mask) |>
-  cor()
-
-corrplot(cor_mat, addCoef.col = "black", 
-         method = "circle", type = "full", order = "alphabet")
-
-save_eda <- function(plot, filename) {
-  pdf(file.path("plots", filename))
-  print(plot)
-  dev.off()
+if (FALSE) {
+  setwd("/mnt/ecocast/projectdata/calanusclimate")
+  
+  library(corrplot)
+  
+  cor_mat <- readr::read_csv(file.path("/mnt/ecocast/projectdata/calanusclimate",
+                                       "src/tc_datasets/ae_dryweight_nooutliers_chyp.csv.gz")) |>
+    select(Bathy_depth:V, -land_mask) |>
+    cor()
+  
+  corrplot(cor_mat, addCoef.col = "black", 
+           method = "circle", type = "full", order = "alphabet")
+  
+  save_eda <- function(plot, filename) {
+    pdf(file.path("plots", filename))
+    print(plot)
+    dev.off()
+  }
 }
 
 # threshold v. performance

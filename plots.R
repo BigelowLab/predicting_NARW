@@ -4,17 +4,17 @@ library(viridis)
 library(patchwork)
 library(ggpubr)
 
-##### HELPERS ##########
+##### FILE/DATA HELPERS ##########
 
-#' Retrieves prediction data from file for a given climate situation
+#' Retrieves prediction data from file
 #' 
 #' @param v chr, the version being retrieved
 #' @param year int, the year being retrieved
 #' @param scenario chr, the scenario being retrieved
-#' @return df, a table with a "data" column with prediction data from each
-#'   prediction file in climate situation folder and "mon" column with month 
-#'   for corresponding climate data - NA if annual data
-read_preds <- function(v, year, scenario, save_months = 1:12) {
+#' @param save_months array of numerical months to retrieve
+#' @return list, prediction data named by month
+read_preds <- function(v, year, scenario, save_months = 1:12, 
+                       quantile = FALSE) {
   
   folder <- pred_path(v, year, scenario)
   # if directory does not exist, return false
@@ -26,9 +26,11 @@ read_preds <- function(v, year, scenario, save_months = 1:12) {
   wd <- getwd()
   setwd(folder)
   
+  file_prefix <- ifelse(quantile, "quant_preds", "predictions")
+  
   # helper method that retrieves data for a month
   read_month <- function(mon) {
-    filename <- paste0("predictions", mon, ".csv.gz")
+    filename <- paste0(file_prefix, mon, ".csv.gz")
     
     if (file.exists(filename)) {
       readr::read_csv(filename, col_types = readr::cols())
@@ -38,529 +40,621 @@ read_preds <- function(v, year, scenario, save_months = 1:12) {
   }
   
   # constructing list of prediction data named by month
-  preds <- 1:12 |>
-    lapply(read_month) |>
-    setNames(mon_names())
+  preds <- setNames(1:12, mon_names())[save_months] |>
+    lapply(read_month)
   
   setwd(wd)
-  preds[save_months]
+  preds
 }
 
-#' ALTER THIS METHOD FOR ALTERNATIVE PLOT ARRANGEMENT
+#' Saves a plot object to file
 #' 
-#' @param plots list, plot objects
-#' @param path chr, file path to save to 
-save_plots <- function(plots, v, year, scenario, filename, 
-                       verbose = FALSE) {
+#' @param plot_obj object/object list to save to file
+#' @param v chr, version
+#' @param year int, year
+#' @param scenario chr, scenario
+#' @param filename chr, filename
+#' @param verbose bool, print destination filename?
+#' @return TRUE if executes successfully
+save_plots <- function(plot_obj, v, year, scenario, filename) {
+  
   ppath <- pred_path(v, year, scenario, filename)
-  if (verbose) {print(ppath)}
   
   pdf(ppath)
-  print(plots)
+  print(plot_obj)
   dev.off()
   
   TRUE
 }
 
-# grid 2x2 of plots
-# INCOMPLETE: troubleshooting labels
-save_plots_gridded <- function(v, year, scenario,
-                               months = c("Jan", "Apr", "Jul", "Oct"),
-                               downsample = 2, 
-                               cex_override = .6) {
+########### DATA PREP HELPERS ###############
+
+#' Returns raw data
+get_raw_data <- identity
+
+#' Takes two prediction sets and returns a new prediction set expressing the 
+#'   difference between the two datasets. Intended to feed to difference plots.
+#'   Assumes both datasets have same downsample value and month set
+#'   
+#' @param base_preds the "current" dataset
+#' @param comparison_preds the "prior" dataset
+#' @return list of difference data
+get_difference_data <- function(base_preds, comparison_preds) {
+  purrr::map2(base_preds, 
+              comparison_preds, 
+              ~mutate(.x, .pred_1 = .pred_1 - .y$.pred_1))
+}
+
+#' Takes a Cfin and Chyp prediction set and returns combined predictions 
+#'   computed as the probability of either patch. 
+get_combined_data <- function(cfin_preds, chyp_preds) {
+  purrr::map2(cfin_preds, chyp_preds,
+              ~mutate(.x, .pred_1 = 1 - (.x$.pred_0 * .y$.pred_0)))
+}
+
+#' Computes threshold status -- how patch probability shifted relative to a 
+#'   critical threshold for two prediction sets. Results are in a 
+#'   REL_PRESENCE column: FALSE_FALSE, FALSE_TRUE, TRUE_FALSE, or TRUE_TRUE
+get_threshold_data <- function(base_preds, comparison_preds, 
+                               threshold = .3) {
+  purrr::map2(base_preds, comparison_preds, 
+              ~mutate(.x, 
+                      REL_PRESENCE = paste0(.y$.pred_1 > threshold, 
+                                            "_", 
+                                            .x$.pred_1 > threshold) |>
+                        factor(levels = c("FALSE_FALSE", "FALSE_TRUE", 
+                                          "TRUE_FALSE", "TRUE_TRUE"))))
+}
+
+#' Computes threshold status by quantile - how top X% of preds shifted
+get_threshold_percent_data <- function(base_preds, comparison_preds, 
+                               threshold_percent = .1,
+                               filter_bathy = FALSE) {
   
-  test_plots <- read_preds(v, year, scenario)[months] |>
-    #get_combined_preds("v4.02.03", "v4.04.01", year = year, scenario = scenario) |>
-    map(~plot_month(.x, "", FALSE, TRUE, downsample,
-                    cex_override = cex_override))
+  process_month <- function(base_pred, comparison_pred) {
+    base_vec <- base_pred$.pred_1
+    comp_vec <- comparison_pred$.pred_1
+    
+    if (filter_bathy) {
+      base_vec <- base_vec[base_pred$Bathy_depth < 180]
+      comp_vec <- comp_vec[comparison_pred$Bathy_depth < 180]
+    }
+    
+    base_threshold <- quantile(base_vec, 1 - threshold_percent)[[1]]
+    comp_threshold <- quantile(comp_vec, 1 - threshold_percent)[[1]]
+    
+    mutate(base_pred, 
+           REL_PRESENCE = paste0(comparison_pred$.pred_1 > comp_threshold, 
+                                 "_", 
+                                 base_pred$.pred_1 > base_threshold) |>
+             factor(levels = c("FALSE_FALSE", "FALSE_TRUE", 
+                               "TRUE_FALSE", "TRUE_TRUE")))
+  }
   
-  winter <- test_plots[[months[1]]] + 
-    theme(axis.ticks.x = element_blank(), 
+  purrr::map2(base_preds, comparison_preds, 
+              process_month)
+}
+
+get_threshold_table <- function(data_list,
+                                threshold = .1) {
+  data_list |>
+    purrr::imap(~count(.x, 'Patch' = .pred_1 > threshold) |>
+                  mutate('Month' = .y, 'Percent Patch' = n/sum(n))) |>
+    bind_rows() |>
+    filter(Patch) |>
+    select(Month, `Percent Patch`)
+}
+
+########## PLOT FORMATTING HELPERS ############
+
+#' Takes a list of four plots and formats into a 2x2 printable grid object
+#'   Could be customized in future to accept other grid dims
+grid_plots <- function(plotlist, title) {
+  if (length(plotlist) != 4) {stop("Plotlist must be length 4")}
+  months <- names(plotlist)
+  
+  top_left <- plotlist[[1]] + 
+    theme(axis.ticks.x = element_blank(),
           axis.text.x = element_blank()) +
     ggtitle(paste("a)", months[1]))
   
-  spring <- test_plots[[months[2]]] + 
+  top_right <- plotlist[[2]] + 
     theme(axis.ticks = element_blank(), 
           axis.text = element_blank()) +
     ggtitle(paste("b)", months[2]))
   
-  summer <- test_plots[[months[3]]] +
+  bottom_left <- plotlist[[3]] +
     ggtitle(paste("c)", months[3]))
   
-  fall <- test_plots[[months[4]]] +
+  bottom_right <- plotlist[[4]] +
     theme(axis.ticks.y = element_blank(), 
           axis.text.y = element_blank()) +
     ggtitle(paste("d)", months[4]))
   
-  res <- (winter + spring + summer + fall +
-            plot_layout(nrow = 2, ncol = 2, guides = "collect") &
-            theme(legend.position = "bottom",
-                  axis.title = element_blank())) +
-    plot_annotation(paste(v, year, scenario, "gridded results"))
+  grid <- (top_left + top_right + bottom_left + bottom_right +
+             plot_layout(nrow = 2, ncol = 2, guides = "collect") +
+             plot_annotation(title)) &
+    theme(legend.position = "bottom", 
+          axis.title = element_blank())
   
-  pdf(pred_path(v, year, scenario, "gridded_plot_cropped.pdf"))
-  print(res)
-  dev.off()
-} 
+  grid
+}
 
-#' ALTER THIS METHOD TO CHANGE PLOT APPEARANCE
-#' 
-#' @param preds df, data to plot
-#' @param title chr, the name of the plot
-#' @param diff boolean, is this plot a difference plot?
-#' @param cropped boolean, is this plot cropped?
-#' @param downsample int, downsample factor 
-#' @return plot of desired month 
-plot_month <- function (preds, title, diff, cropped, downsample, 
-                        cex_override = NULL) {
-  
+######## PLOT GENERATION HELPERS ############
+
+#' base plotting function - returns a base plot common to all plot functions
+plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
+                      cropped = TRUE, gridded = TRUE, title = NULL,
+                      cex_override = NULL) {
   if (cropped) {
     xlim <- c(-77.0, -42.5) 
     ylim <- c(36.5,  56.7)
-    cex <- c(.5, .8, 1.3, 2)[downsample+1]
+    cex <- c(.5, .8, 1.7, 2)[downsample + 1]
   } else {
     xlim <- ylim <- NULL 
-    cex <- c(.17, .17, .3, .4)[downsample+1]
+    cex <- c(.23, .17, .4, .4)[downsample + 1]
   }
   
-  if (!is.null(cex_override)) {cex <- cex_override}
+  if (gridded) {
+    cex <- c(.35, .45, .6, .7)[downsample + 1]
+  }
   
-  # ggplot base
-  plot_base <- ggplot(preds, aes(x = lon, y = lat, col = .pred_1)) +
-    geom_point(cex = cex, pch = 15) +
-    coord_quickmap(xlim = xlim,
-                   ylim = ylim) + 
-    theme_bw() +
+  if (!is.null(cex_override)) {
+    cex <- cex_override
+  }
+  
+  ggplot(mon_data, aes(x = lon, y = lat)) +
+    geom_point(aes(col = get(plotCol)), cex = cex, pch = 15) +
+    theme_bw() + 
     theme(panel.grid.minor = element_blank(),
           panel.grid.major = element_blank(),
           legend.position = "bottom") +
-    labs(x = "Latitude", y = "Longtitude", color = "Patch probability") +
+    labs(x = "Latitude", y = "Longitude") +
+    coord_quickmap(xlim = xlim, 
+                   ylim = ylim) +
     ggtitle(title)
-  
-  # desired color scheme depends on whether this is raw or comparison plot
-  if (diff) {
-    plot <- plot_base +
-      scale_color_gradientn(limits = c(-.9, .9),
-                            colors = c("midnightblue",
-                                       "midnightblue",
-                                       "dodgerblue3",
-                                       "deepskyblue1",
-                                       "gray94", 
-                                       "goldenrod1",
-                                       "darkorange1",
-                                       "orangered3",
-                                       "orangered3"),
-                            na.value = "white") +
-      labs(color = "Change in probability")
-  } else {
-    plot <- plot_base +
-      scale_color_viridis(option = "inferno", limits = c(0, 1))
-  }
-  
-  plot
 }
 
-### MAIN FUNCTION ##########
+#' Functions that each tack on additional needed attributes for plot type
+plot_raw <- function(plot_base, top_limit = 1) {
+  plot_base + 
+    scale_color_viridis(option = "inferno", limits = c(0, top_limit)) +
+    labs(color = "Patch Probability")
+}
 
-# goal: produce 4 plots per desired scenario (2 for present day)
-get_plots <- function(v = "v3.00", 
-                      plot_scenarios = 1:5,
-                      comparison_scenario = 5, 
-                      save_months = 1:12,
-                      downsample = c(0, 1, 2, 3)[1]) {
+plot_difference <- function(plot_base, limit = .9) {
+  plot_base + 
+    scale_color_gradientn(limits = c(-limit, limit),
+                          colors = c("midnightblue",
+                                     "midnightblue",
+                                     "dodgerblue3",
+                                     "deepskyblue1",
+                                     "gray94", 
+                                     "goldenrod1",
+                                     "darkorange1",
+                                     "orangered3",
+                                     "orangered3"),
+                          na.value = "white") +
+    labs(color = "Change in probability")
+}
+
+plot_threshold <- function(plot_base) {
+  # naming factor levels 
+  feedstatus <- list(FALSE_FALSE = "No Patch",
+                     FALSE_TRUE = "New Patch", 
+                     TRUE_FALSE = "Lost Patch", 
+                     TRUE_TRUE = "Patch")
   
-  # retrieving comparison predictions 
+  # palette for colors 
+  pal <- c(FALSE_FALSE = "#EAEAEA",
+           FALSE_TRUE = "#54BF21", 
+           TRUE_FALSE = "#CD0000", 
+           TRUE_TRUE = "#FFD82E")
+  
+  plot_base +
+    scale_color_manual(labels = feedstatus,
+                       values = pal) + 
+    guides(colour = guide_legend(override.aes = list(size=2))) +
+    labs(color = "Patch Status")
+}
+
+#' Processes a data list and siphons to correct plotting function
+plot_data_list <- function(data_list, downsample, plot_func, plot_col,
+                           cropped = TRUE, gridded = TRUE, title = NULL) {
+  
+  plots_list <- data_list |>
+    purrr::imap(~plot_base(.x, downsample, plot_col, cropped, gridded, 
+                          title = paste(title, "-", .y)) |>
+                 plot_func())
+  
+  if (gridded) {
+    plots_list <- plots_list |>
+      grid_plots(title)
+  }
+  
+  plots_list
+}
+
+### MAIN FUNCTIONS ##########
+
+# HELPER
+run_scenarios <- function(v, downsample, plot_scenarios, save_months, 
+                          cropped, gridded, plot_func, plot_col,
+                          process_data, get_title, filename_base, 
+                          quantile = FALSE) {
+  
+  # processes climate situations
+  run_scenario <- function(year, scenario) {
+    
+    title <- get_title(v, year, scenario)
+    
+    preds_list <- read_preds(v, year, scenario, save_months = save_months, 
+                             quantile = quantile) |>
+      process_data()
+    
+    for (crop in cropped) {
+      plots_list <- plot_data_list(preds_list, downsample, plot_func, plot_col, 
+                                   cropped, gridded = gridded, title = title)
+      
+      filename <- paste0(filename_base,
+                         ifelse(cropped, "_cropped", ""),
+                         ifelse(gridded, "_gridded", ""),
+                         ".pdf")
+      
+      plots_list |>
+        save_plots(v, year, scenario, filename)
+    }
+    
+    TRUE
+  }
+  
+  # plotting predictions
+  climate_table(plot_scenarios) |>
+    mutate(success = run_scenario(year, scenario))
+}
+
+# BASIC
+get_raw_plots <- function(v,
+                          downsample,
+                          plot_scenarios = 1:5,
+                          save_months = 1:12, 
+                          cropped = c(TRUE, FALSE), gridded = FALSE,
+                          top_limit = 1) {
+  # defining pass-in variables
+  process_data <- identity
+  get_title <- function(v, year, scenario) {
+    paste(v, 
+          ifelse(scenario != "PRESENT", 
+                 paste(scenario, year), scenario),
+          "Calanus Presence Probability")
+  }
+  filename_base <- "plot"
+  
+  plot_method <- function(x) {plot_raw(x, top_limit = top_limit)}
+  
+  # call to base function
+  run_scenarios(v, downsample, plot_scenarios, save_months, 
+                cropped, gridded, plot_method, ".pred_1", 
+                process_data, get_title, filename_base)
+}
+
+get_difference_plots <- function(v, 
+                                 downsample, 
+                                 plot_scenarios = 1:5, 
+                                 comparison_scenario = 5, 
+                                 save_months = 1:12, 
+                                 cropped = c(TRUE, FALSE), gridded = FALSE) {
+  # defining pass-in variables
   compare_spec <- climate_table(comparison_scenario)
   comparison_preds <- read_preds(v, 
                                  year = compare_spec$year,
                                  scenario = compare_spec$scenario,
                                  save_months = save_months)
-  
-  # helper function that processes each climate situation
-  run_scenario <- function(year, scenario) {
-    
-    run_crop_tf <- function(plot_data_list, diff) {
-      
-      plot_month_wrapper <- function (preds, mon_name, cropped) {
-        
-        # generating title 
-        scenario_string <- ifelse((scenario != "PRESENT"), 
-                                  paste(scenario, year), 
-                                  scenario)
-        desc_string <- ifelse(diff, 
-                              "Change in Calanus Prescence Probability",
-                              "Calanus Presence Probability")
-        title <- paste(v, scenario_string, desc_string, "-", mon_name)
-        
-        plot_month(preds, 
-                   title = title, 
-                   diff = diff, 
-                   cropped = cropped, 
-                   downsample = downsample)
-      }
-      
-      for (cropped in c(TRUE, FALSE)) {
-        # generating save name
-        filename <- paste0("plot",
-                           ifelse(cropped, "_cropped", ""),
-                           ifelse(diff, 
-                                  paste0("_diff", comparison_scenario), ""), 
-                           ".pdf")
-        
-        # creating a list of monthly plots and saving 
-        plot_data_list |>
-          purrr::imap(~plot_month_wrapper(.x, .y, cropped)) |>
-          save_plots(v, year, scenario, filename)
-      }
-    }
-    
-    # plotting comparison scenario
-    if ((compare_spec$year == year | 
-         (is.na(compare_spec$year) & is.na(year))) && 
-        compare_spec$scenario == scenario) {
-      
-      preds_list <- comparison_preds
-      comparison_list <- NULL
-    } else {
-      
-      preds_list <- read_preds(v, year, scenario, save_months = save_months)
-      comparison_list <- comparison_preds
-    }
-    
-    # running for original 
-    preds_list |>
-      run_crop_tf(diff = FALSE)
-    
-    # for comparison plots, subtract comparison data from original
-    if (!is.null(comparison_list)) {
-      purrr::map2(preds_list, 
-                  comparison_list, 
-                  ~mutate(.x, .pred_1 = .pred_1 - .y$.pred_1)) |>
-        run_crop_tf(diff = TRUE)
-    }
-    
-    TRUE
+  process_data <- function(base_preds) {
+    get_difference_data(base_preds, comparison_preds)
   }
   
-  # plotting predictions
-  climate_table(plot_scenarios) |>
-    mutate(success = run_scenario(year, scenario))
+  get_title <- function(v, year, scenario) {
+    paste(v, 
+          ifelse(scenario != "PRESENT", 
+                 paste(scenario, year), scenario),
+          "Change in Calanus Presence Probability")
+  }
+  filename_base <- "plot_diff"
+  
+  # call to base function
+  run_scenarios(v, downsample, plot_scenarios, save_months, 
+                cropped, gridded, plot_difference, ".pred_1", 
+                process_data, get_title, filename_base)
 }
 
-get_threshold_plots <- function(v = "v3.00", 
-                                plot_scenarios = 1:4,
-                                threshold = .5,
-                                comparison_scenario = 5,
-                                downsample = c(0, 1, 2, 3)[3]) {
-  
-  # retrieving comparison predictions 
-  compare_spec <- climate_table(comparison_scenario)
-  comparison_preds <- read_preds(v, 
-                                 year = compare_spec$year,
-                                 scenario = compare_spec$scenario)
-  
-  if (FALSE) {
-    comparison_preds <- get_combined_preds(vcfin = "v4.02.03", vchyp = "v4.04.01", 
-                                           year = NULL, scenario = "PRESENT")
-    preds_list <- get_combined_preds(vcfin = "v4.02.03", vchyp = "v4.04.01", 
-                                     year = 2075, scenario = "RCP85")
+get_threshold_plots <- function(v, 
+                                downsample, 
+                                plot_scenarios = 1:5, 
+                                threshold = .3, 
+                                save_months = 1:12, 
+                                cropped = c(TRUE, FALSE), gridded = FALSE) {
+  # defining pass-in variables
+  comparison_preds <- read_preds(v, NA, "PRESENT", save_months)
+  process_data <- function(base_preds) {
+    get_threshold_data(base_preds, comparison_preds, threshold)
   }
   
-  # naming factor levels 
-  feedstatus <- list(FALSE_FALSE = "No Feed",
-                     FALSE_TRUE = "New Feed", 
-                     TRUE_FALSE = "Lost Feed", 
-                     TRUE_TRUE = "Feed")
-  # palette for colors 
-  pal <- c(FALSE_FALSE = "gray90",
-           FALSE_TRUE = "red3", 
-           TRUE_FALSE = "dodgerblue2", 
-           TRUE_TRUE = "goldenrod1")
-  
-  # helper function that generates data for each scenario and generates plots
-  run_scenario <- function(year, scenario) {
-    
-    # helper to create set of monthly plots and save to file
-    run_cropped <- function(cropped) {
-      
-      # helper to generate plot
-      feed_plot <- function (climate_data, mon_name, cropped) {
-        if (cropped) {
-          xlim <- c(-77.0, -42.5) 
-          ylim <- c(36.5,  56.7)
-          cex <- c(.5, .8, 1.3, 2)[downsample+1]
-        } else {
-          xlim <- ylim <- NULL 
-          cex <- c(.17, .17, .3, .4)[downsample+1]
-        }
-        
-        # generating title 
-        main <- paste(v, scenario, year, 
-                      "Feeding Habitat Change -", mon_name,
-                      paste0("(Threshold: ", threshold, ")"))
-        
-        # generating plot
-        ggplot(climate_data, aes(x = lon, y = lat, col = REL_PRESENCE)) +
-          geom_point(cex = cex, pch = 15) +
-          scale_color_manual(labels = feedstatus,
-                             values = pal) + 
-          coord_quickmap(xlim = xlim,
-                         ylim = ylim) + 
-          theme_bw() +
-          theme(panel.grid.minor = element_blank(),
-                panel.grid.major = element_blank(),
-                legend.position = "bottom") +
-          guides(colour = guide_legend(override.aes = list(size=2))) +
-          labs(x = "Latitude", y = "Longtitude", color = "Feed Status") +
-          ggtitle(main)
-      }
-      
-      # naming save file
-      filename <- paste0("feedplot", 
-                         threshold, 
-                         ifelse(cropped, "_cropped", ""), 
-                         ".pdf")
-      if (FALSE) {
-        filename = "COMBINEDLIST.pdf"
-      }
-      # saving to pdf
-      plot_data_list |>
-        imap(~feed_plot(.x, .y, cropped)) |>
-        save_plots(v, year, scenario, filename)
-      
-      TRUE
-    }
-    
-    # try and read in current predictions
-    preds_list <- read_preds(v, year, scenario)
-    
-    plot_data_list <-  
-      purrr::map2(preds_list, 
-                  comparison_preds, 
-                  ~mutate(.x, 
-                          REL_PRESENCE = paste0(.y$.pred_1 > threshold,
-                                                "_",
-                                                .x$.pred_1 > threshold)))
-    
-    c(TRUE, FALSE) |>
-      lapply(run_cropped)
-    
-    TRUE
+  get_title <- function(v, year, scenario) {
+    paste(v, scenario, year, 
+          "Patch Change (Threshold: ", threshold, ")")
   }
+  filename_base <- paste0("feedplot", threshold)
   
-  # plotting predictions
-  climate_table(plot_scenarios) |>
-    mutate(success = run_scenario(year, scenario))
+  # call to base function
+  run_scenarios(v, downsample, plot_scenarios, save_months, 
+                cropped, gridded, plot_threshold, "REL_PRESENCE", 
+                process_data, get_title, filename_base)
 }
 
-gridded_threshold <- function(v = "v4.02.02", year, scenario,
-                              comparison_scenario = 5,
-                              threshold = .5,
-                              downsample = c(0, 1, 2, 3)[3],
-                              months = c("Jan", "Apr", "Jul", "Oct"), 
-                              cex_override = .6) {
+get_threshold_percent_plots <- function(v, 
+                                        downsample, 
+                                        plot_scenarios = 1:5, 
+                                        threshold_perc = .1, 
+                                        filter_bathy = FALSE,
+                                        save_months = 1:12, 
+                                        cropped = c(TRUE, FALSE), 
+                                        gridded = FALSE) {
   
-  # try and read in current predictions
-  preds_list <- read_preds(v, year, scenario)[months]
-  # retrieving comparison predictions 
-  compare_spec <- climate_table(comparison_scenario)
-  comparison_preds <- read_preds(v, 
-                                 year = compare_spec$year,
-                                 scenario = compare_spec$scenario)[months]
-  if (FALSE) {
-  comparison_preds <- get_combined_preds(vcfin = "v4.02.03", vchyp = "v4.04.01", 
-                                   year = NULL, scenario = "PRESENT")
-  preds_list <- get_combined_preds(vcfin = "v4.02.03", vchyp = "v4.04.01", 
-                                   year = 2075, scenario = "RCP85")
-  }
-  plot_data_list <-  
-    purrr::map2(preds_list, 
-                comparison_preds, 
-                ~mutate(.x, 
-                        REL_PRESENCE = paste0(.y$.pred_1 > threshold, 
-                                              "_", 
-                                              .x$.pred_1 > threshold) |>
-                          factor(levels = c("FALSE_FALSE", "FALSE_TRUE", 
-                                            "TRUE_FALSE", "TRUE_TRUE"))))
-  
-  # naming factor levels 
-  feedstatus <- list(FALSE_FALSE = "No Feed",
-                     FALSE_TRUE = "New Feed", 
-                     TRUE_FALSE = "Lost Feed", 
-                     TRUE_TRUE = "Feed")
-  # palette for colors 
-  pal <- c(FALSE_FALSE = "gray90",
-           FALSE_TRUE = "red3", 
-           TRUE_FALSE = "dodgerblue2", 
-           TRUE_TRUE = "goldenrod1")
-  
-  # helper to generate plot
-  feed_plot <- function (climate_data, mon_name) {
-    xlim <- c(-77.0, -42.5) 
-    ylim <- c(36.5,  56.7)
-    cex <- cex_override
-    
-    # generating plot
-    ggplot(climate_data, aes(x = lon, y = lat, col = REL_PRESENCE)) +
-      geom_point(cex = cex, pch = 15) +
-      scale_color_manual(labels = feedstatus,
-                         values = pal,
-                         drop = FALSE) + 
-      coord_quickmap(xlim = xlim,
-                     ylim = ylim) + 
-      theme_bw() +
-      theme(panel.grid.minor = element_blank(),
-            panel.grid.major = element_blank(),
-            legend.position = "bottom") +
-      guides(colour = guide_legend(override.aes = list(size=2))) +
-      labs(x = "Latitude", y = "Longtitude", color = "Feed Status") +
-      ggtitle(mon_name)
+  # defining pass-in variables
+  comparison_preds <- read_preds(v, NA, "PRESENT", save_months)
+  process_data <- function(base_preds) {
+    get_threshold_percent_data(base_preds, comparison_preds, threshold_perc,
+                               filter_bathy)
   }
   
-  #####
-  
-  test_plots <- plot_data_list |>
-    imap(~feed_plot(.x, .y))
-  
-  winter <- test_plots[[months[1]]] + 
-    theme(axis.ticks.x = element_blank(), 
-          axis.text.x = element_blank()) +
-    ggtitle(paste("a)", months[1]))
-  
-  spring <- test_plots[[months[2]]] + 
-    theme(axis.ticks = element_blank(), 
-          axis.text = element_blank()) +
-    ggtitle(paste("b)", months[2]))
-  
-  summer <- test_plots[[months[3]]] +
-    ggtitle(paste("c)", months[3]))
-  
-  fall <- test_plots[[months[4]]] +
-    theme(axis.ticks.y = element_blank(), 
-          axis.text.y = element_blank()) +
-    ggtitle(paste("d)", months[4]))
-  
-  res <- (winter + spring + summer + fall +
-            plot_layout(nrow = 2, ncol = 2, guides = "collect") +
-            plot_annotation(paste(v, year, scenario, 
-                                  "(Threshold: ", threshold, ")"))) &
-    theme(legend.position = "bottom",
-          axis.title = element_blank())
-  
-  if (FALSE) {
-  res <- (winter + spring + summer + fall +
-            plot_layout(nrow = 2, ncol = 2, guides = "collect") +
-            plot_annotation("COMBINED")) &
-    theme(legend.position = "bottom",
-          axis.title = element_blank())
+  get_title <- function(v, year, scenario) {
+    paste(v, scenario, year, 
+          "Patch Change (Threshold Quant: ", threshold_perc, ")")
   }
+  filename_base <- paste0("feedplot_perc", threshold_perc)
   
-  pdf(pred_path(v, year, scenario, #"COMBINEDTHRESHOLD.pdf"))
-                paste0("gridThreshold_", threshold, ".pdf")))
-  print(res)
-  dev.off()
+  # call to base function
+  run_scenarios(v, downsample, plot_scenarios, save_months, 
+                cropped, gridded, plot_threshold, "REL_PRESENCE", 
+                process_data, get_title, filename_base)
 }
 
+# COMPARE DIFFERENCE
 compare_versions <- function(old_v,
                              new_v, 
+                             downsample,
                              year = NA, 
                              scenario = "PRESENT",
-                             downsample = c(0, 1, 2, 3)[3],
-                             cropped = FALSE) {
+                             save_months = 1:12,
+                             cropped = FALSE, gridded = FALSE) {
   
-  old_v_preds <- read_preds(old_v, year, scenario)
-  new_v_preds <- read_preds(new_v, year, scenario)
+  old_v_preds <- read_preds(old_v, year, scenario, save_months)
+  new_v_preds <- read_preds(new_v, year, scenario, save_months)
   
-  plottable_preds <- purrr::map2(new_v_preds, 
-                                 old_v_preds, 
-                                 ~mutate(.x, .pred_1 = .pred_1 - .y$.pred_1))
+  data_list <- get_difference_data(new_v_preds, old_v_preds)
   
-  plottable_preds |>
-    purrr::imap(~plot_month(.x, 
-                            title = paste(new_v, "vs.", old_v, "-", .y),
-                            diff = TRUE, cropped = cropped, downsample = 3)) |>
-    save_plots(new_v, year, scenario, 
-               paste0(new_v, "_vs_", old_v, "_", 
-                      ifelse(cropped, "cropped", ""), ".pdf"))
+  title <- paste(old_v, "vs.", new_v,
+                 ifelse(scenario != "PRESENT", 
+                        paste(year, scenario), scenario))
+  
+  plotlist <- plot_data_list(data_list, downsample, plot_difference, ".pred_1",
+                             cropped, gridded, title = title)
+  
+  filename <- paste0(new_v, "_vs_", old_v, 
+                     ifelse(cropped, "_cropped", ""),
+                     ifelse(gridded, "_gridded", ""),
+                     ".pdf")
+  
+  save_plots(plotlist, new_v, year, scenario, filename, verbose)
 }
 
-combined_preds <- function(vcfin, vchyp,
-                           downsample = 2,
-                           year = 2075, 
-                           scenario = "RCP85"){
+# COMBINED
+get_combined_plots <- function(vcfin,
+                               vchyp, 
+                               downsample,
+                               year = NA, 
+                               scenario = "PRESENT",
+                               save_months = 1:12,
+                               cropped = FALSE, gridded = FALSE,
+                               top_limit = 1) {
   
-  vcfin_preds <- read_preds(vcfin, year, scenario)
-  vchyp_preds <- read_preds(vchyp, year, scenario)
+  vcfin_preds <- read_preds(vcfin, year, scenario, save_months)
+  vchyp_preds <- read_preds(vchyp, year, scenario, save_months)
   
-  combined_preds <- 
-    purrr::map2(vcfin_preds, vchyp_preds,
-                ~mutate(.x, .pred_1 = 1 - (.x$.pred_0 * .y$.pred_0)))
+  data_list <- get_combined_data(vcfin_preds, vchyp_preds)
   
-  months <- combined_preds |>
-    imap(~plot_month(.x, 
-                     paste("Combined", vcfin, "and", vchyp, 
-                           year, scenario, "-", .y),
-                     diff = FALSE, cropped = FALSE, downsample = downsample))
+  title <- paste(vcfin, "and", vchyp, "combined", 
+                 ifelse(scenario != "PRESENT", 
+                        paste(year, scenario), scenario))
   
-  save_plots(months, vcfin, year, scenario, "combinedpreds.pdf",
-             verbose = TRUE)
+  plot_method <- function(x) {plot_raw(x, top_limit = top_limit)}
+  
+  plotlist <- plot_data_list(data_list, downsample, plot_method, ".pred_1",
+                             cropped, gridded, title = title)
+  
+  filename <- paste0(vcfin, "_", vchyp, "_COMBINED",
+                     ifelse(cropped, "_cropped", ""),
+                     ifelse(gridded, "_gridded", ""),
+                     ".pdf")
+  
+  save_plots(plotlist, vcfin, year, scenario, filename)
 }
 
-get_combined_preds <- function(vcfin, vchyp,
-                           year = 2075, 
-                           scenario = "RCP85"){
+get_combined_difference_plots <- function(vcfin,
+                                          vchyp, 
+                                          downsample,
+                                          year = NA, 
+                                          scenario = "PRESENT",
+                                          save_months = 1:12,
+                                          cropped = FALSE, gridded = FALSE,
+                                          limit = .5) {
   
-  vcfin_preds <- read_preds(vcfin, year, scenario)
-  vchyp_preds <- read_preds(vchyp, year, scenario)
+  comparison_preds <- get_combined_data(
+    read_preds(vcfin, 2075, "RCP85", save_months), 
+    read_preds(vchyp, 2075, "RCP85", save_months)
+  )
   
-  purrr::map2(vcfin_preds, vchyp_preds,
-              ~mutate(.x, .pred_1 = 1 - (.x$.pred_0 * .y$.pred_0)))
+  base_preds <- get_combined_data(
+    read_preds(vcfin, year, scenario, save_months),
+    read_preds(vchyp, year, scenario, save_months)
+  )
+  
+  data_list <- get_difference_data(base_preds, comparison_preds)
+  
+  title <- paste(vcfin, "and", vchyp, scenario, year, "Patch Difference")
+  
+  plotlist <- plot_data_list(data_list, downsample, 
+                             function(x) plot_difference(x, limit = .5), ".pred_1",
+                             cropped, gridded, title = title)
+  
+  filename <- paste0(vcfin, "_", vchyp, "_COMBINED_diff",
+                     ifelse(cropped, "_cropped", ""),
+                     ifelse(gridded, "_gridded", ""),
+                     ".pdf")
+  
+  save_plots(plotlist, vcfin, year, scenario, filename)
 }
 
-# old code
-if (FALSE) {
-  # non-ggplot implementation of plot_month
-  plot_month <- function (mon_pred, title, diff, cropped, downsample) {
-    
-    # converting to sf
-    mon_pred <- mon_pred |>
-      st_as_sf(coords = c("lon", "lat"), crs = 4326)
-    
-    # cropped plot has set bounds and larger point sizes
-    if (cropped) {
-      xlim <- c(-77.0, -42.5) 
-      ylim <- c(36.5,  56.7)
-      cex <- c(.5, .5, .8, 1)[downsample+1]
-    } else {
-      xlim <- ylim <- NULL 
-      cex <- c(.17, .17, .3, .4)[downsample+1]
-    }
-    
-    # generating separate color/scale formatting for difference plots
-    ncol <- 31
-    if (diff) {
-      breaks <- seq(-.8, .8, length.out = ncol+1)
-      pal <- colorRampPalette(c("midnightblue", #cool end
-                                "dodgerblue3",
-                                "deepskyblue1",
-                                "gray94", 
-                                "goldenrod1",
-                                "darkorange1", 
-                                "orangered3"))(ncol) #warm end
-    } else { #raw values
-      breaks <- seq(0, 1, length.out = ncol+1)
-      pal <- inferno(ncol)
-    }
-    
-    # generating plot
-    plot(mon_pred['.pred_1'], 
-         xlim = xlim,
-         ylim = ylim,
-         breaks = breaks,
-         pal = pal,
-         pch = 15,
-         cex = cex,
-         axes = TRUE,
-         main = title)
+get_combined_threshold_plots <- function(vcfin,
+                                         vchyp, 
+                                         downsample,
+                                         year = NA, 
+                                         scenario = "PRESENT",
+                                         threshold = .3,
+                                         save_months = 1:12,
+                                         cropped = FALSE, gridded = FALSE) {
+  
+  comparison_preds <- get_combined_data(
+    read_preds(vcfin, NA, "PRESENT", save_months), 
+    read_preds(vchyp, NA, "PRESENT", save_months)
+  )
+  
+  base_preds <- get_combined_data(
+    read_preds(vcfin, year, scenario, save_months),
+    read_preds(vchyp, year, scenario, save_months)
+  )
+  
+  data_list <- get_threshold_data(base_preds, comparison_preds, threshold)
+  
+  title <- paste(vcfin, "and", vchyp, scenario, year, 
+                 "Patch Change (Threshold: ", threshold, ")")
+  
+  plotlist <- plot_data_list(data_list, downsample, plot_threshold, "REL_PRESENCE",
+                             cropped, gridded, title = title)
+  
+  filename <- paste0(vcfin, "_", vchyp, "_COMBINED_feedplot", threshold,
+                     ifelse(cropped, "_cropped", ""),
+                     ifelse(gridded, "_gridded", ""),
+                     ".pdf")
+  
+  save_plots(plotlist, vcfin, year, scenario, filename)
+  
+  # percent table
+  table_file <- paste0(vcfin, "_", vchyp, "COMBINED_perctable", threshold, ".csv")
+  
+  get_threshold_table(data_list, threshold) |>
+    readr::write_csv(pred_path(vcfin, year, scenario, table_file))
+}
+
+get_combined_threshold_percent_plots <- function(vcfin,
+                                                 vchyp, 
+                                                 downsample,
+                                                 year = NA, 
+                                                 scenario = "PRESENT",
+                                                 threshold_perc = .3,
+                                                 filter_bathy = FALSE,
+                                                 save_months = 1:12,
+                                                 cropped = FALSE, gridded = FALSE) {
+  
+  comparison_preds <- get_combined_data(
+    read_preds(vcfin, NA, "PRESENT", save_months), 
+    read_preds(vchyp, NA, "PRESENT", save_months)
+  )
+  
+  base_preds <- get_combined_data(
+    read_preds(vcfin, year, scenario, save_months),
+    read_preds(vchyp, year, scenario, save_months)
+  )
+  
+  data_list <- get_threshold_percent_data(base_preds, comparison_preds, threshold_perc,
+                                          filter_bathy)
+  
+  title <- paste(vcfin, "and", vchyp, scenario, year, 
+                 "Patch Change (Threshold Quant: ", threshold_perc, ")")
+  
+  plotlist <- plot_data_list(data_list, downsample, plot_threshold, "REL_PRESENCE",
+                             cropped, gridded, title = title)
+  
+  filename <- paste0(vcfin, "_", vchyp, "_COMBINED_feedplot_perc", threshold_perc,
+                     ifelse(cropped, "_cropped", ""),
+                     ifelse(gridded, "_gridded", ""),
+                     ".pdf")
+  
+  save_plots(plotlist, vcfin, year, scenario, filename)
+}
+
+# QUANTILE
+get_quant_perc_plots <- function(v, downsample, year, scenario, 
+                                 save_months, cropped = TRUE, gridded = FALSE,
+                                 quant_col = .50,
+                                 top_limit = 1) {
+  
+  quant_name <- paste0(quant_col*100, "%")
+  
+  quantile_data <- read_preds(v, year, scenario, save_months,
+                              quantile = TRUE)
+  
+  plot_quantile_perc <- function(plot_base) {
+    plot_base + 
+      scale_color_viridis(option = "inferno", limits = c(0, top_limit)) +
+      labs(color = paste(quant_name, "Quantile Patch Probability"))
   }
+  
+  title <- paste(v, quant_name, "Quantile Patch Probability")
+  
+  quant_plots_list <- plot_data_list(quantile_data, downsample,
+                                     plot_quantile_perc, quant_name, 
+                                     cropped, gridded, title)
+  
+  filename <- paste0("QUANT_", quant_col*100,
+                     ifelse(cropped, "_cropped", ""),
+                     ifelse(gridded, "_gridded", ""),
+                     ".pdf")
+  
+  save_plots(quant_plots_list, v, year, scenario, filename)
 }
+
+get_quant_range_plots <- function(v, downsample, year, scenario, 
+                                  save_months, cropped = TRUE, gridded = FALSE,
+                                  ci = .95,
+                                  top_limit = .6) {
+  
+  upper_ci <- paste0((.5 + ci/2.0)*100, "%")
+  lower_ci <- paste0((.5 - ci/2.0)*100, "%")
+  ci_title <- paste0(ci*100, "%")
+  
+  quantile_data <- read_preds(v, year, scenario, save_months,
+                              quantile = TRUE) |>
+    map(~mutate(.x, CI = get(upper_ci) - get(lower_ci)))
+  
+  plot_quantile_range <- function(plot_base) {
+    plot_base +
+      scale_color_viridis(limits = c(0, top_limit)) +
+      labs(col = paste(ci_title, "Confidence Interval Range"))
+  }
+  
+  title <- paste(v, ci_title, "Confidence Interval")
+  
+  quant_plots_list <- plot_data_list(quantile_data, downsample,
+                                     plot_quantile_range, "CI", 
+                                     cropped, gridded, title)
+  
+  filename <- paste0("QUANTRANGE_", ci*100,
+                     ifelse(cropped, "_cropped", ""),
+                     ifelse(gridded, "_gridded", ""),
+                     ".pdf")
+  
+  save_plots(quant_plots_list, v, year, scenario, filename)
+}
+

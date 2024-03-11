@@ -10,6 +10,7 @@ suppressPackageStartupMessages(
     library(yaml)
     library(purrr)
     library(gridExtra)
+    library(bundle) # for reading in/out keras models
   })
 
 ### DATA HELPERS
@@ -28,13 +29,14 @@ filter_dates <- function(data, date_start, date_end) {
 
 ### PREDICTION AND PLOT HELPERS
 
-plot_ae <- function(data, color_attribute = "patch", title = "Plot") {
+plot_ae <- function(data, plot_col = "patch", title = "Plot") {
   ggplot(data, aes(x = lon, y = lat)) +
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
                  fill = "lightgray", col = "gray") +
-    geom_point(aes_string(col = color_attribute), alpha = .7, size = .3) +
+    geom_point(aes(col = get(plot_col)), alpha = .7, size = .3) +
     coord_quickmap(xlim = c(-76, -40), ylim = c(35, 60), expand = TRUE) +
+    labs(col = plot_col) +
     theme_bw() + 
     ggtitle(title)
 }
@@ -105,6 +107,12 @@ pred_path <- function(v = "v1.00",
 }
 
 ### VERSION HELPERS
+# lists out versions within a specific number file
+available_versions <- function(vNum = "v5") {
+  file.path("/mnt/ecocast/projectdata/students/ojohnson/brickman/versions",
+            vNum) |>
+    list.files()
+}
 
 #' Retrieves a fitted workflow for desired version. If version is already
 #' a workflow, simply returns workflow
@@ -112,7 +120,13 @@ get_v_wkf <- function(v, wkf = NULL) {
   if (!is.null(wkf)) {
     wkf
   } else {
-    readRDS(v_path(v, "model", "model_fit.csv.gz"))
+    model_obj <- readRDS(v_path(v, "model", "model_fit.csv.gz"))
+    
+    if (any(class(model_obj) == "bundle")) {
+      model_obj <- unbundle(model_obj)
+    }
+    
+    model_obj
   }
 }
 
