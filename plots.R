@@ -271,7 +271,7 @@ plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
     theme(panel.grid.minor = element_blank(),
           panel.grid.major = element_blank(),
           legend.position = "bottom") +
-    labs(x = "Latitude", y = "Longitude") +
+    labs(x = "Longitude", y = "Latitude") +
     coord_quickmap(xlim = xlim, 
                    ylim = ylim, 
                    expand = FALSE) +

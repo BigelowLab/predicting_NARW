@@ -57,16 +57,20 @@ ecomon <- ecomon |>
 result_plot <- ggplot(ecomon |> filter(to_correct), 
        aes(x = CIV_CVI_m2/10^6, y = corrected_CIV_CVI_m2/10^6)) +
   geom_abline() +
-  geom_point(aes(col = sta_depth)) + #shape = to_correct,
+  geom_point(aes(col = sta_depth), alpha = .7) + #shape = to_correct,
   #facet_wrap(~Month) + 
   theme_bw() +
   scale_x_continuous( #trans = "log10", 
-                     name = "Observed late-stage C. finmarchicus (ind/10^6m2)") +
+                     name = expression("Observed late-stage" ~ 
+                       italic("C. finmarchicus") ~ "(ind ⋅"~10^-6~m^2~")")) +
   scale_y_continuous(#trans = "log10", 
-                     name = "Corrected late-stage C. finmarchicus (ind/10^6m2)") +
-  labs(col = "Depth", shape = "Corrected") +
+    name = expression("Corrected late-stage" ~ 
+                        italic("C. finmarchicus") ~ "(ind ⋅"~10^-6~m^2~")")) +
+  labs(col = "Bathymetry (m)", shape = "Corrected") +
   scale_color_viridis_c(option = "turbo")
   #coord(xlim = c(0, 1.3), ylim = c(0, 1.3))
+
+result_plot
 
 # code to save result plot and ecomon dataset to file
 if (FALSE) {

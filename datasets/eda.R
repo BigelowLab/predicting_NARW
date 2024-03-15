@@ -2,6 +2,41 @@ library(viridis)
 library(RColorBrewer)
 library(lubridate)
 
+# determining potential latitudinal shift
+if (FALSE) {
+  month = 6
+  
+  t4 <- get_combined_data(
+    read_preds("v6.01", NA, "PRESENT", save_months = month, quantile = TRUE),
+    read_preds("v6.03", NA, "PRESENT", save_months = month, quantile = TRUE),
+    quantile = "50%"
+  )
+  
+  present_t <- t3[[1]] |>
+    group_by(latitude = round(lat, 1)) |>
+    summarize(mean50 = mean(`50%`)) |>
+    mutate(type = "PRESENT")
+  
+  t4 <- get_combined_data(
+    read_preds("v6.01", 2075, "RCP85", save_months = month, quantile = TRUE),
+    read_preds("v6.03", 2075, "RCP85", save_months = month, quantile = TRUE),
+    quantile = "50%"
+  )
+  
+  future_t <- t4[[1]] |>
+    group_by(latitude = round(lat, 1)) |>
+    summarize(mean50 = mean(`50%`)) |>
+    mutate(type = "FUTURE",
+           diff = mean50 - present_t$mean50)
+  
+  ggplot(future_t, aes(x = latitude, y = diff)) +
+    geom_line() + 
+    geom_smooth(method = "lm", color = "red") + 
+    labs(y = "Relative future tau-h-patch (Future minus Present)") +
+    theme_bw() +
+    ggtitle(paste("Difference btwn present, future tau-h-patch by latitude, month", month))
+}
+
 # plot cropped brickman variable values
 if (FALSE) {
   dir <- "/mnt/ecocast/projectdata/calanusclimate/plots/brickman_cropped"
