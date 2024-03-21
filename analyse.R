@@ -49,15 +49,20 @@ roc_curves_w_ci <- function(v) {
               upper = quantile(auc, .975),
               .groups = 'keep')
   
+  res <- left_join(data.frame(month = 1:12 |> factor()), 
+                   res,
+                   join_by(month)) |>
+    as_tibble()
+  
   title <- paste(v, "AUC (2.5%, 50%, 97.5%):", 
                  overall$auc |> quantile(c(.025, .5, .975)) |> 
                    round(3) |> paste(collapse = ", "))
   
-  plot <- ggplot() + 
-    geom_ribbon(data = res, 
-                aes(x = month, ymax = upper, ymin = lower), 
+  plot <- ggplot(res, aes(x = month)) + 
+    geom_ribbon(aes(ymax = upper, ymin = lower), 
                 fill = "yellowgreen", alpha = .5, group = 1) + 
-    geom_line(data = res, aes(x = month, y = mean), group = 1) +
+    geom_line(aes(y = mean), group = 1) +
+    geom_point(aes(y = mean), size = .75) +
     coord_cartesian(ylim = c(.0, 1)) +
     theme_bw() +
     labs(y = "AUC", x = "Month") + 
@@ -252,7 +257,7 @@ response_curves_data <- function(v,
       model_preds <- model_preds |>
         mutate(value = log10(value + 1))
     }
-    if(show_no_post && !is.null(post) && var == "Bathy_depth") { #&& var == "Bathy_depth"
+    if(show_no_post && !is.null(post)) { #&& var == "Bathy_depth"
       model_preds <- model_preds |>
         mutate(no_post = `50%`)
     }
@@ -295,6 +300,16 @@ response_curves_data <- function(v,
       mutate(across(variable, ~vimp[.x] |> unlist())) |>
       mutate(across(variable, ~factor(.x, levels = vimp)))
   }
+  
+  # Percentiles
+  # eval_strip |>
+  #   filter(`50%` > .01) |>
+  #   mutate(diff = `97.5%`-`2.5%`) |>
+  #   group_by(variable) |>
+  #   summarize(median_range = median(diff),
+  #             median_mean = median(`50%`),
+  #             .groups = "keep") |>
+  #   mutate(ratio = median_range/median_mean)
   
   # plotting
   plot <- ggplot(quant_table) +
