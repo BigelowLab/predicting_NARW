@@ -113,27 +113,24 @@ get_quant_diff_plots("v6.01",
                      combining_v = "v6.03")
 
 ## ADDITIONAL ANALYSES: PICK AND CHOOSE AT LEISURE 
-varimp <- var_imp(v)
+varimp <- var_imp(v, plot = TRUE)
 vi_list <- varimp$Variable
-
-vi_list <- c("Bathy_depth", "MLD", #"SSS",
-             "SST", "Sbtm", "Tbtm", "Vel", "month")
 
 roc_curves_w_ci(v)
 
 response_curves_data(v,
                      data,
                      vimp = vi_list, 
-                     vars = c("Bathy_depth", "SST", "Tbtm", #"SSS",
+                     vars = c("Bathy_depth", "SST", "Tbtm", "SSS",
                               "MLD", "Vel", "Sbtm"),
                      num_pts = 100,
                      mid_mon = 8,
                      log_bathy = TRUE,
                      same_y = FALSE,
-                     save_plot = TRUE,
+                     save_plot = FALSE,
                      show_no_post = TRUE,
                      patch_only_medians = FALSE,
-                     bottom_latitude = 42,
+                     bottom_latitude = NULL, #42
                      post = post)
 
 response_curve_2var(v,

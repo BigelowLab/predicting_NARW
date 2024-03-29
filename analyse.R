@@ -326,7 +326,8 @@ response_curves_data <- function(v,
                 fill = "grey50", alpha = .8) +
     geom_line(data = eval_strip, 
               mapping = aes(x = value, y = `50%`)) +
-    facet_wrap(~ variable, scales = ifelse(same_y, "free_x", "free")) +
+    facet_wrap(~ variable, scales = ifelse(same_y, "free_x", "free"), 
+               nrow = ifelse(save_plot, 3, 2), ncol = ifelse(save_plot, 3, 4)) +
     theme_bw() +
     theme(legend.position = "none") +
     labs(x = "Variable value", y = "Patch probability") +
