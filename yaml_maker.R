@@ -1,5 +1,5 @@
-v <- "v6.03"
-overwrite <- TRUE
+v <- "v6.01.01"
+overwrite <- FALSE
 
 # training data 
 strata = "patch"
@@ -10,11 +10,11 @@ brickman_data_config <- list(interval = "mon",
                                            "Bathy_depth = log10(Bathy_depth + 1)",
                                            "step_normalize()")) 
 species_data_config <- list(source = c("azmp", "ecomon"), 
-                            species = "C. hyperboreus REAL", #####
+                            species = "C. finmarchicus", #####
                             staged = FALSE,
                             threshold = list(pre = "flat_tm(30000*195)",
                                              post = "stephane_final(state_val = 'rest')"), #######
-                            date_range = list(start =  "1990-01-01",
+                            date_range = list(start =  "1999-01-01",
                                               end = "2015-12-31"),
                             vertical_correction = FALSE) #####
 # model

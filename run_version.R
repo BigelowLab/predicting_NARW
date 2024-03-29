@@ -65,11 +65,11 @@ get_quantile_preds(v,
 
 # Raw and threshold plots
 
-get_quant_raw_plots("v6.03", 0,
+get_quant_raw_plots("v6.01.01", 0,
                     plot_scenarios = c(5), 
                     save_months = c(1:12), 
                     cropped = TRUE,
-                    gridded = TRUE,
+                    gridded = FALSE,
                     quant_col = .5,
                     top_limit = .5)
 
@@ -77,9 +77,9 @@ get_quant_threshold_plots(v,
                           ds_master,
                           plot_scenarios = c(4), 
                           threshold = .2,
-                          save_months = c(11, 12, 1, 2, 3, 4), 
+                          save_months = 1:12, 
                           cropped = TRUE, 
-                          gridded = TRUE, 
+                          gridded = FALSE, 
                           quant_col = .5)
 
 # Combined plots
@@ -113,8 +113,8 @@ get_quant_diff_plots("v6.01",
                      combining_v = "v6.03")
 
 ## ADDITIONAL ANALYSES: PICK AND CHOOSE AT LEISURE 
-vi_list <- var_imp(v)
-vi_list
+varimp <- var_imp(v)
+vi_list <- varimp$Variable
 
 vi_list <- c("Bathy_depth", "MLD", #"SSS",
              "SST", "Sbtm", "Tbtm", "Vel", "month")

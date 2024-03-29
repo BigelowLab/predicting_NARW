@@ -255,10 +255,10 @@ plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
   if (cropped) {
     xlim <- c(-77.0, -42.5) 
     ylim <- c(36.5, 56.7) #c(35.2,  57.6)
-    cex <- c(.5, .8, 1.7, 2)[downsample + 1]
+    cex <- c(.5, 1, 1.7, 2)[downsample + 1]
   } else {
     xlim <- ylim <- NULL 
-    cex <- c(.23, .17, .4, .4)[downsample + 1]
+    cex <- c(.23, .3, .4, .4)[downsample + 1]
   }
 
   if (!is.null(cex_override)) {

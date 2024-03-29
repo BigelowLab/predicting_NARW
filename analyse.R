@@ -13,7 +13,7 @@ save_analysis <- function(plot, v, name) {
 }
 
 # Calculates AUC by month 
-roc_curves_w_ci <- function(v) {
+roc_curves_w_ci <- function(v, save = TRUE) {
   
   test_res <- get_testing(v)
   
@@ -63,12 +63,16 @@ roc_curves_w_ci <- function(v) {
                 fill = "yellowgreen", alpha = .5, group = 1) + 
     geom_line(aes(y = mean), group = 1) +
     geom_point(aes(y = mean), size = .75) +
-    coord_cartesian(ylim = c(.0, 1)) +
+    coord_cartesian(ylim = c(ifelse(save, 0, .5), 1)) +
     theme_bw() +
     labs(y = "AUC", x = "Month") + 
     ggtitle(title)
   
-  save_analysis(plot, v, "auc_by_month")
+  if (save) {
+    save_analysis(plot, v, "auc_by_month")
+  } else {
+    plot
+  }
 }
 
 # Calculates TSS by month 
@@ -117,10 +121,10 @@ tss_by_month <- function(v) {
 #' 
 #' @param v the version
 #' @return list of variables from most to least important, NULL if error 
-var_imp <- function(v) {
+var_imp <- function(v, plot = FALSE) {
   vimps <- get_v_wkfs(v) |>
     map(extract_fit_parsnip) |>
-    map(vi)
+    map(vi_model)
   
   vimp <- vimps |> 
     bind_rows() |>
@@ -135,20 +139,22 @@ var_imp <- function(v) {
   
   agg_vimp <- vimp |>
     filter(!startsWith(Variable, "month")) |>
-    arrange(Importance)
-  agg_vimp <- bind_rows(month, agg_vimp) |>
+    arrange(desc(Importance))
+  agg_vimp <- bind_rows(agg_vimp, month) |>
     mutate(across(Variable, ~var_abb()[Variable] |> unlist())) |>
     mutate(across(Variable, ~factor(.x, levels = Variable)))
   
-  p <- ggplot(agg_vimp, aes(x = Importance, y = Variable)) +
-    theme(axis.title.y = element_blank()) +
-    theme_bw() +
-    theme(axis.title.y = element_blank()) +
-    geom_bar(stat = 'identity', fill = "dodgerblue4")
+  if (plot) {
+    p <- ggplot(agg_vimp, aes(x = Importance, y = Variable)) +
+      theme(axis.title.y = element_blank()) +
+      theme_bw() +
+      theme(axis.title.y = element_blank()) +
+      geom_bar(stat = 'identity', fill = "dodgerblue4")
+    
+    save_analysis(p, v, "var_importance")
+  }
   
-  save_analysis(p, v, "var_importance")
-  
-  vimp$Variable
+  agg_vimp
   
   # tryCatch({
   #   vip(model) |>
@@ -434,7 +440,7 @@ response_curve_2var <- function(v,
 }
 
 # create plots of abundance vs. dry weight
-pred_v_dryweight <- function(v, threshold_method, model_preds) {
+pred_v_dryweight <- function(v, threshold_method, model_preds, save = TRUE) {
   
   ref <- data_from_config(read_config(v)$training_data, 
                           vars_override = "dry_weight",
@@ -451,8 +457,9 @@ pred_v_dryweight <- function(v, threshold_method, model_preds) {
   # creating plottable objects
   base <- ggplot(ref, aes(x = log10(dry_weight + 1), y = .pred_1)) +
     theme_bw() +
-    labs(y = "Raw Patch probability", x = "Dry weight (ug)(log10(x + 1))") +
-    ggtitle("Raw patch probability vs. dry weight") +
+    labs(y = expression(τ[b] * "-patch probability"), 
+         x = "Dry weight (µg)(log10(x + 1))") +
+    ggtitle(expression(τ[b]*"-patch probability vs. dry weight")) +
     coord_cartesian(expand = TRUE)
   
   density <- base +
@@ -464,9 +471,9 @@ pred_v_dryweight <- function(v, threshold_method, model_preds) {
     geom_hline(yintercept = .5)
   
   points <- base +
-    geom_point(alpha = .3) +
+    geom_point(alpha = .1, size = ifelse(save, 1, .8)) +
     geom_hline(yintercept = .5, color = "red") + 
-    geom_vline(xintercept = 30000*195, color = "red")
+    geom_vline(xintercept = log10(30000*195 + 1), color = "red")
   
   points_color <- base +
     geom_point(aes(col = patch), alpha = .2) +
@@ -481,16 +488,102 @@ pred_v_dryweight <- function(v, threshold_method, model_preds) {
     geom_smooth(col = 'black', linewidth = .75)
   
   annotate_help <- function(plot) {
+    if(save) {
+      x_val = 1
+      y_val = c(.9, .85, .8)
+    } else {
+      x_val = 1.8
+      y_val = c(.93, .83, .73)
+    }
+    
     plot +
-      annotate("text", x = 1, y = c(.9, .85, .8), 
+      annotate("text", x = x_val, y = y_val,
                label = c(paste("rho =", round(cortest$estimate, 4)), 
                          "p < 2.2e-16", 
                          paste("n =", nrow(ref))))
   }
   
-  list(density, points, points_color, points_smooth) |>
-    lapply(annotate_help) |>
-    save_analysis(v, "predictions_vs_dryweight")
+  if (save) {
+    list(density, points, points_color, points_smooth) |>
+      lapply(annotate_help) |>
+      save_analysis(v, "predictions_vs_dryweight")
+  } else {
+    annotate_help(points)
+  }
+}
+
+# predicitions vs. dryweight grams units
+pred_v_dryweight_g <- function(v, threshold_method, model_preds, save = TRUE) {
+  
+  ref <- data_from_config(read_config(v)$training_data, 
+                          vars_override = "dry_weight",
+                          threshold_method = threshold_method) |>
+    select(patch, dry_weight) |>
+    mutate(dry_weight_g = dry_weight/(10^6)) |>
+    bind_cols(.pred_1 = model_preds$`50%`)
+  
+  # performing correlation test
+  cortest <- cor.test(ref$dry_weight_g, ref$.pred_1, 
+                      method = "spearman", exact = FALSE)
+  
+  cortest
+  
+  # creating plottable objects
+  base <- ggplot(ref, aes(x = log10(dry_weight_g + 1), y = .pred_1)) +
+    theme_bw() +
+    labs(y = expression(τ[b] * "-patch probability"), 
+         x = expression("Water column biomass ("*g*"·"*m^{-2}*") ("*log[10]*"(x + 1))")) +
+    ggtitle(expression(τ[b]*"-patch probability vs. water column biomass")) +
+    coord_cartesian(expand = TRUE)
+  
+  density <- base +
+    theme(legend.position = "bottom") +
+    geom_hex(bins = 45) +
+    #stat_density_2d(aes(fill = ..level..), geom = "polygon") +
+    #scale_fill_distiller(palette = "Purples", direction = 1) +
+    scale_fill_viridis(direction = -1) +
+    geom_hline(yintercept = .5)
+  
+  points <- base +
+    geom_point(alpha = .1, size = ifelse(save, 1, .8)) +
+    geom_hline(yintercept = .5, color = "red") + 
+    geom_vline(xintercept = log10(5.85 + 1), color = "red")
+  
+  points_color <- base +
+    geom_point(aes(col = patch), alpha = .2) +
+    scale_color_manual(values = c("orange", "blue")) + 
+    geom_hline(yintercept = .5, color = "black", linewidth = .5) + 
+    labs(col = "Patch")
+  
+  points_smooth <- base + 
+    geom_point(aes(col = patch), alpha = .2) +
+    scale_color_manual(values = c("orange", "blue")) + 
+    labs(col = "Patch") + 
+    geom_smooth(col = 'black', linewidth = .75)
+  
+  annotate_help <- function(plot) {
+    if(save) {
+      x_val = 1
+      y_val = c(.9, .85, .8)
+    } else {
+      x_val = 1.9
+      y_val = c(.28, .18, .08)
+    }
+    
+    plot +
+      annotate("text", x = x_val, y = y_val,
+               label = c(paste("rho =", round(cortest$estimate, 4)), 
+                         "p < 2.2e-16", 
+                         paste("n =", nrow(ref))))
+  }
+  
+  if (save) {
+    list(density, points, points_color, points_smooth) |>
+      lapply(annotate_help) |>
+      save_analysis(v, "predictions_vs_dryweight")
+  } else {
+    annotate_help(points)
+  }
 }
 
 # plot false positives/negatives
