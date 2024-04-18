@@ -58,18 +58,18 @@ get_quantile_preds(v,
 
 get_quantile_preds(v, 
                    save_scenarios = c(1, 2, 3), 
-                   save_months = 6:9,
+                   save_months = 8,
                    downsample = ds_master,
                    post = post, 
                    crop = TRUE)
 
 # Raw and threshold plots
 
-get_quant_raw_plots("v6.01.01", 0,
+get_quant_raw_plots("v6.03", 0,
                     plot_scenarios = c(5), 
                     save_months = c(1:12), 
                     cropped = TRUE,
-                    gridded = FALSE,
+                    gridded = TRUE,
                     quant_col = .5,
                     top_limit = .5)
 
@@ -85,10 +85,10 @@ get_quant_threshold_plots(v,
 # Combined plots
 get_quant_raw_plots(v = "v6.01", 
                     0,
-                    plot_scenarios = c(1, 2, 3, 4), 
-                    save_months = 8, 
+                    plot_scenarios = c(5), 
+                    save_months = 1:12, 
                     cropped = TRUE,
-                    gridded = FALSE,
+                    gridded = TRUE,
                     quant_col = .5,
                     top_limit = .5,
                     combining_v = "v6.03")
@@ -97,11 +97,20 @@ get_quant_threshold_plots("v6.01",
                           0,
                           plot_scenarios = 4, 
                           threshold = .2,
-                          save_months = c(5:10), 
+                          save_months = c(11, 12, 1, 2, 3, 4), 
                           cropped = TRUE, 
                           gridded = TRUE, 
                           quant_col = .5,
                           combining_v = "v6.03")
+
+get_quant_pIQR_plots("v6.01", 
+                     0,
+                     plot_scenarios = 5,
+                     save_months = 1:12,
+                     cropped = TRUE, 
+                     gridded = TRUE,
+                     top_limit = .3,
+                     combining_v = "v6.03")
 
 get_quant_diff_plots("v6.01", 
                      0, 
@@ -113,7 +122,7 @@ get_quant_diff_plots("v6.01",
                      combining_v = "v6.03")
 
 ## ADDITIONAL ANALYSES: PICK AND CHOOSE AT LEISURE 
-varimp <- var_imp(v, plot = TRUE)
+varimp <- var_imp(v, plot = FALSE)
 vi_list <- varimp$Variable
 
 roc_curves_w_ci(v)
@@ -121,7 +130,7 @@ roc_curves_w_ci(v)
 response_curves_data(v,
                      data,
                      vimp = vi_list, 
-                     vars = c("Bathy_depth", "SST", "Tbtm", "SSS",
+                     vars = c("Bathy_depth", "SST", "Tbtm", #"SSS",
                               "MLD", "Vel", "Sbtm"),
                      num_pts = 100,
                      mid_mon = 8,
@@ -130,7 +139,7 @@ response_curves_data(v,
                      save_plot = FALSE,
                      show_no_post = TRUE,
                      patch_only_medians = FALSE,
-                     bottom_latitude = NULL, #42
+                     bottom_latitude = 42,
                      post = post)
 
 response_curve_2var(v,

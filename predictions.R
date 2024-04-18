@@ -96,7 +96,7 @@ get_quantile_preds <- function(v,
       
       if (crop) {
         mon_data <- mon_data |>
-          filter(lon >= -77 & lon <= -42.5 & lat >= 36.5 & lat <= 56.7)
+          filter(lon >= -77 & lon <= -42.5 & lat >= 35.2 & lat <= 57.6)
       }
       
       wkf_quantiles <- apply_quantile_preds(wkfs, mon_data, desired_quants) |>

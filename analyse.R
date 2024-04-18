@@ -138,14 +138,14 @@ var_imp <- function(v, plot = FALSE) {
               Importance = sum(Importance), .groups = 'keep')
   
   agg_vimp <- vimp |>
-    filter(!startsWith(Variable, "month")) |>
-    arrange(desc(Importance))
-  agg_vimp <- bind_rows(agg_vimp, month) |>
+    filter(!startsWith(Variable, "month"))
+  renamed_vimp <- bind_rows(agg_vimp, month) |>
+    arrange(Importance) |>
     mutate(across(Variable, ~var_abb()[Variable] |> unlist())) |>
     mutate(across(Variable, ~factor(.x, levels = Variable)))
   
   if (plot) {
-    p <- ggplot(agg_vimp, aes(x = Importance, y = Variable)) +
+    p <- ggplot(renamed_vimp, aes(x = Importance, y = Variable)) +
       theme(axis.title.y = element_blank()) +
       theme_bw() +
       theme(axis.title.y = element_blank()) +
@@ -154,7 +154,8 @@ var_imp <- function(v, plot = FALSE) {
     save_analysis(p, v, "var_importance")
   }
   
-  agg_vimp
+  bind_rows(agg_vimp, month) |>
+    arrange(desc(Importance))
   
   # tryCatch({
   #   vip(model) |>
@@ -330,7 +331,8 @@ response_curves_data <- function(v,
                nrow = ifelse(save_plot, 3, 2), ncol = ifelse(save_plot, 3, 4)) +
     theme_bw() +
     theme(legend.position = "none") +
-    labs(x = "Variable value", y = "Patch probability") +
+    labs(x = "Covariate value", 
+         y = expression("Predicted"~τ[b]*"-patch,"~τ[h]*"-patch probability")) +
     ggtitle(paste(v, 
                   ifelse(is_null(post), "tau-b", "tau-h"), 
                   "Response Curves"))

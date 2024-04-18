@@ -74,9 +74,10 @@ result_plot
 
 # code to save result plot and ecomon dataset to file
 if (FALSE) {
-  root <- "/mnt/ecocast/projectdata/calanusclimate/src/final_datasets"
+  root <- "/mnt/ecocast/projects/students/ojohnson/brickman/figure_files"
   
-  pdf(file.path(root, "vertcorr_results.pdf"))
+  pdf(file = file.path(root, "figure2_verticalcorrection.pdf"),
+      width = 7, height = 5)
   print(result_plot)
   dev.off()
   

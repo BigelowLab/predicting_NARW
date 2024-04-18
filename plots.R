@@ -73,6 +73,10 @@ save_plots <- function(plot_obj, v, year, scenario, filename) {
 #' Returns raw data
 get_raw_data <- identity
 
+get_95pIQR_data <- function(preds) {
+  purrr::map(preds, ~mutate(.x, pIQR = `97.5%` - `2.5%`))
+}
+
 #' Takes two prediction sets and returns a new prediction set expressing the 
 #'   difference between the two datasets. Intended to feed to difference plots.
 #'   Assumes both datasets have same downsample value and month set
@@ -98,12 +102,17 @@ get_combined_data <- function(cfin_preds, chyp_preds, quantile = NULL) {
                 ~mutate(.x, .pred_1 = 1 - (.x$.pred_0 * .y$.pred_0)))
     
   } else { # combined data
-    purrr::map2(
-      cfin_preds, chyp_preds,
-      ~mutate(.x, 
-              !!quantile := pull(.x, quantile) + pull(.y, quantile) -
-                pull(.x, quantile) * pull(.y, quantile)))
+    base <- cfin_preds
+    for (q in quantile) {
+      base <- purrr::map2(
+        base, chyp_preds,
+        ~mutate(.x, 
+                !!q := pull(.x, q) + pull(.y, q) -
+                  pull(.x, q) * pull(.y, q)))
+    }
   }
+  
+  base
 }
 
 #' Computes threshold status -- how patch probability shifted relative to a 
@@ -254,7 +263,7 @@ plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
                       cex_override = NULL) {
   if (cropped) {
     xlim <- c(-77.0, -42.5) 
-    ylim <- c(36.5, 56.7) #c(35.2,  57.6)
+    ylim <- c(35.2, 57.6)
     cex <- c(.5, 1, 1.7, 2)[downsample + 1]
   } else {
     xlim <- ylim <- NULL 
@@ -300,7 +309,15 @@ plot_raw <- function(plot_base, top_limit = 1) {
   plot_base + 
     scale_color_viridis(option = "turbo", limits = c(0, top_limit)) +
     labs(color = "Patch Probability") + 
-    # new!
+    geom_polygon(data = ggplot2::map_data("world"), 
+                 aes(long, lat, group = group),
+                 fill = "white")
+}
+
+plot_95pIQR <- function(plot_base, top_limit = 1) {
+  plot_base + 
+    scale_color_viridis(option = "inferno", limits = c(0, top_limit)) +
+    labs(color = "Uncertainty") + 
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
                  fill = "white")
@@ -351,7 +368,8 @@ plot_threshold <- function(plot_base) {
     labs(color = NULL) + #"Patch Status") + 
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
-                 fill = "black")
+                 fill = "black") + 
+    theme(legend.title.align=0.5)
 }
 
 #' Processes a data list and siphons to correct plotting function
@@ -404,14 +422,18 @@ run_scenarios <- function(v, downsample, plot_scenarios, save_months,
     preds_list <- read_preds(v, year, scenario, save_months, is_quantile)
     if(!is.null(combining_v)) {
       preds_list <- 
-        read_preds(combining_v, year, scenario, save_months, is_quantile) |>
-        get_combined_data(preds_list, quantile)
+        get_combined_data(cfin_preds = preds_list,
+                          chyp_preds = read_preds(combining_v, year, scenario,
+                                                  save_months, is_quantile),
+                          quantile = quantile)
     }
     preds_list <- preds_list |> process_data()
     
     for (crop in cropped) {
       plots_list <- plot_data_list(preds_list, downsample, plot_func, plot_col, 
                                    crop, gridded = gridded, title = title)
+      
+      plots_list[[1]]
       
       filename <- paste0(filename_base,
                          ifelse(cropped, "_cropped", ""),
@@ -465,6 +487,40 @@ get_quant_raw_plots <- function(v,
                 cropped, gridded, plot_method, quant_name, 
                 process_data, get_title, filename_base,
                 quantile = quant_name, combining_v = combining_v)
+}
+
+get_quant_pIQR_plots <- function(v,
+                                downsample,
+                                plot_scenarios = 1:5,
+                                save_months = 1:12, 
+                                cropped = TRUE, gridded = FALSE,
+                                top_limit = 1,
+                                combining_v = NULL) {
+  
+  combined <- !is.null(combining_v)
+  
+  # defining pass-in variables
+  process_data <- get_95pIQR_data
+  get_title <- function(v, year, scenario, combining_v) {
+    paste(ifelse(combined, 
+                 paste(v, "and", combining_v), v),
+          ifelse(scenario != "PRESENT", 
+                 paste(scenario, year), scenario),
+          "95th pIQR Uncertainty")
+  }
+  
+  filename_base <- "_plot_95pIQR"
+  if (combined) {
+    filename_base <- paste0(v, "_", combining_v, filename_base)
+  }
+  
+  plot_func <- function(x) {plot_95pIQR(x, top_limit = top_limit)}
+  
+  # call to base function
+  run_scenarios(v, downsample, plot_scenarios, save_months, 
+                cropped, gridded, plot_func, plot_col = "pIQR", 
+                process_data, get_title, filename_base,
+                quantile = c("2.5%", "97.5%"), combining_v = combining_v)
 }
 
 get_quant_threshold_plots <- function(v, 
