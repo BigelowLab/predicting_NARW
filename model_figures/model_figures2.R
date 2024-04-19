@@ -21,7 +21,7 @@ if (FALSE) {
                        labels = c("AZMP", "EcoMon")) + 
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
-                 col = "black", fill = "grey30", linewidth = .3) +
+                 col = "black", fill = "grey40", linewidth = .3) +
     coord_sf(xlim = c(-77.0, -42.5),
              ylim = c(35.2,  57.6),
              crs = 4326,

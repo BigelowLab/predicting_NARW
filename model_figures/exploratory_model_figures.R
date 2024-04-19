@@ -20,24 +20,25 @@ if (FALSE) {
     reduce(bind_rows) |>
     select(lat, lon, month, REL_PRESENCE)
   
-  regions <- read_sf(dsn = "model_figures/shapefiles/Regions_dw_vd_poly_all.shp") |>
-    st_make_valid() |>
-    st_transform(crs = 4326)
-  
-  regions_NEW <- read_sf(dsn = "model_figures/shapefiles/johnson2024_regions.shp") |>
+  regions <- read_sf(dsn = "model_figures/shapefiles/johnson2024_regions.shp") |>
     st_make_valid()
   
-  regions_vec <- c("ESS", "WSS", "GoM", "swGSL", "nGSL", "nGSL", "NLS", "NLS", "Other")
+  regions_names <- 
+    c("MAB", "GoM", "WSS", "ESS", "swGSL", "nGSL", "NLS", "Other")
   
   regions_all <- 
     mutate(big_dataset, region = big_dataset |>
              st_as_sf(coords = c("lon", "lat"), crs = 4326) |>
              st_intersects(regions, sparse = FALSE) |>
-             apply(1, function(u) regions_vec[ifelse(any(u), which(u), 9)]))
+             apply(1, function(u) regions_names[ifelse(any(u), which(u), 8)]))
   
   regions_all <- regions_all |>
-    mutate(month = factor(month.abb[month], level=month.abb))
-  
+    mutate(month = factor(month.abb[month], level=month.abb),
+           REL_PRESENCE = factor(REL_PRESENCE,
+                                 levels = c("FALSE_FALSE", "TRUE_FALSE", 
+                                            "TRUE_TRUE", "FALSE_TRUE")),
+           region = factor(region, levels = regions_names))
+
   feedstatus <- list(FALSE_FALSE = "No Habitat",
                      TRUE_FALSE = "Lost Habitat", 
                      TRUE_TRUE = "Retained Habitat",
@@ -58,8 +59,10 @@ if (FALSE) {
     facet_wrap(~month, ncol = 2, nrow = 3) +
     guides(fill = guide_legend(override.aes = list(color = "black"))) +
     theme(legend.position = "bottom", panel.spacing = unit(1, "lines")) +
-    labs(x = "Region", y = "Percentage of Predictions", fill = NULL) +
+    labs(x = "Region", y = "Percentage of predictions within region", 
+         fill = NULL) +
     scale_fill_manual(labels = feedstatus, values = pal)
+  p
   
   save_analysis(p, "v6.01", "v6.01_v6.03_threshold_bar_charts")
 }
