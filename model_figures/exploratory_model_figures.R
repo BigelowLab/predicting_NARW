@@ -24,6 +24,9 @@ if (FALSE) {
     st_make_valid() |>
     st_transform(crs = 4326)
   
+  regions_NEW <- read_sf(dsn = "model_figures/shapefiles/johnson2024_regions.shp") |>
+    st_make_valid()
+  
   regions_vec <- c("ESS", "WSS", "GoM", "swGSL", "nGSL", "nGSL", "NLS", "NLS", "Other")
   
   regions_all <- 

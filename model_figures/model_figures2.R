@@ -4,28 +4,38 @@ if (FALSE) {
   library(marmap)
   samplingstations <- get_species_raw(species = "C. finmarchicus", filter = TRUE)
   
-  bathy <- getNOAA.bathy(-80.0, -40, 34,  60, resolution = 4) |>
-    fortify.bathy()
+  regions <- read_sf(dsn = "model_figures/shapefiles/johnson2024_regions.shp") |>
+    st_make_valid()
   
-  ggplot(data = samplingstations, aes(x = lon, y = lat)) +
-    geom_point(aes(col = src), cex = .8, alpha = .4) +
-    geom_contour(data = bathy, aes(x=x, y=y, z=z), breaks = -500,
-                 color = "grey50") +
-    scale_color_manual(values = c("red3", "turquoise2")) + 
+  ordered_reg <- c("MAB", "GoM", "WSS", "ESS", "swGSL", "nGSL", "NLS")
+  
+  ggplot(data = samplingstations) +
+    geom_sf(data = regions, aes(fill = factor(id, levels = ordered_reg)), 
+            col = "NA", alpha=.3, show.legend = FALSE) +
+    scale_fill_manual(values = c("#00B6EB", "#FB61D7", "#00C094", "#A58AFF",
+                                 "#53B400", "#F8766D", "#C49A00")) +
+    geom_point(aes(x = lon, y = lat, col = src), cex = .3, alpha = .4) +
+    geom_sf(data = regions, alpha = .5, fill = "NA",
+            col = "black", linewidth = .3) +
+    scale_color_manual(values = c("blue", "orange"), 
+                       labels = c("AZMP", "EcoMon")) + 
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
-                 col = "grey50", fill = "gray", size = .3) +
-    coord_quickmap(xlim = c(-77.0, -42.5),
-                   ylim = c(35.2,  57.6),
-                   expand = FALSE) + 
+                 col = "black", fill = "grey30", linewidth = .3) +
+    coord_sf(xlim = c(-77.0, -42.5),
+             ylim = c(35.2,  57.6),
+             crs = 4326,
+             expand = FALSE) + 
     theme_bw() +
+    labs(fill = "Region", col = "Data Source") +
     theme(panel.grid.minor = element_blank(),
-          # panel.grid.major = element_blank(),
+          panel.grid.major = element_blank(),
           axis.title = element_blank(),
-          legend.position = "none")
+          legend.position = "bottom") + 
+    guides(color = guide_legend(override.aes = list(size = 2, alpha = 1)))
 }
 
-# Figure 3. Map of tau-patch presences and absences for cfin/chyp
+# [No longer included] Map of tau-patch presences and absences for cfin/chyp
 if (FALSE) {
 # run lines 15-25 of run_version.R
 chyp_data <- data |>
@@ -54,7 +64,7 @@ ggplot(chyp_data, aes(x = lon, y = lat)) +
   theme(legend.position = "none")
 }
 
-# Figure 4. Threshold Corrections and Combined Effects
+# Figure 3. Threshold Corrections and Combined Effects
 if (FALSE) {
 Bathy_test <- 0:1000
 b <- as.data.frame(x = Bathy_test)
@@ -93,7 +103,7 @@ ggplot(plot_data, aes(x = Bathy_test, y = val, col = type)) +
   labs(y = "Value", x = "Bathymetry (m)")
 }
 
-# Figure 6. Scatter plots of Measured Dry Weight vs. Modeled patch probability
+# Figure 4. Scatter plots of Measured Dry Weight vs. Modeled patch probability
 if (FALSE) {
   
   # PREP
