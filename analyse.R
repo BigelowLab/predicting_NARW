@@ -156,14 +156,6 @@ var_imp <- function(v, plot = FALSE) {
   
   bind_rows(agg_vimp, month) |>
     arrange(desc(Importance))
-  
-  # tryCatch({
-  #   vip(model) |>
-  #     save_analysis(v, "var_importance")
-  #   vi(model)$Variable
-  # }, error = function(e) {
-  #   NULL
-  # })
 }
 
 #' generate response curves for a desired version
@@ -515,7 +507,7 @@ pred_v_dryweight <- function(v, threshold_method, model_preds, save = TRUE) {
   }
 }
 
-# predicitions vs. dryweight grams units
+# predictions vs. dry weight grams units
 pred_v_dryweight_g <- function(v, threshold_method, model_preds, save = TRUE) {
   
   ref <- data_from_config(read_config(v)$training_data, 
@@ -535,7 +527,7 @@ pred_v_dryweight_g <- function(v, threshold_method, model_preds, save = TRUE) {
   base <- ggplot(ref, aes(x = log10(dry_weight_g + 1), y = .pred_1)) +
     theme_bw() +
     labs(y = expression(τ[b] * "-patch probability"), 
-         x = expression("Water column biomass ("*g*"·"*m^{-2}*") ("*log[10]*"(x + 1))")) +
+         x = expression("Water column biomass ("*g*" "*m^{-2}*") ("*log[10]*"[x + 1])")) +
     ggtitle(expression(τ[b]*"-patch probability vs. water column biomass")) +
     coord_cartesian(expand = TRUE)
   
@@ -569,13 +561,15 @@ pred_v_dryweight_g <- function(v, threshold_method, model_preds, save = TRUE) {
       x_val = 1
       y_val = c(.9, .85, .8)
     } else {
-      x_val = 1.9
+      #this is based on the physical X value and thus varies by dataset
+      x_val = 1.7  
       y_val = c(.28, .18, .08)
     }
     
     plot +
       annotate("text", x = x_val, y = y_val,
                label = c(paste("rho =", round(cortest$estimate, 4)), 
+                         #can cheat this since reliably less than 2.2e-16
                          "p < 2.2e-16", 
                          paste("n =", nrow(ref))))
   }

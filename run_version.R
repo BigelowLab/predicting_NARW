@@ -12,17 +12,17 @@ if (FALSE) {
 #' - correct threshold method?
 #' - has the yaml already been run? 
 
-v <- "v6.03" # chyp real
-# v <- "v6.02" # chyp fake
-v <- "v6.01" #cfin
-config <- read_config(v)
+v <- "v6.03" # Final Calanus hyperboreus version
+v <- "v6.01" # Final Calanus finmarchicus version
+config <- read_config(v) # Read configuration file
 
 set.seed(config$model$seed)
 
-# THRESHOLD METHOD DEFINITION!!!!
+# Define tau-b patch threshold (tm) and bioenergetic correction (post)
 tm <- flat_tm(30000*195)
 post <- stephane_final(state_val = "rest", post = TRUE)
 
+# Retreive dataset
 data <- data_from_config(config$training_data, 
                          threshold_method = tm)
 
@@ -34,7 +34,7 @@ K = 100
 folds <- data |>
   mc_cv(prop = .75, times = K, strata = patch)
 
-# creating workflow and saving analyses to file
+# Creating workflow and saving analyses to file
 wkf_fits <- wkf_version(folds, 
                        config$model$model_list, 
                        v = v, 
@@ -47,7 +47,7 @@ wkf_fits <- wkf_version(folds,
 # 4 RCP85     2075
 # 5 PRESENT     NA
 
-ds_master <- 0
+ds_master <- 0 #Downsampling value. Keep at 0 for any final plots
 
 get_quantile_preds(v, 
                    save_scenarios = c(4, 5), 
@@ -85,10 +85,10 @@ get_quant_threshold_plots(v,
 # Combined plots
 get_quant_raw_plots(v = "v6.01", 
                     0,
-                    plot_scenarios = c(5), 
-                    save_months = 1:12, 
+                    plot_scenarios = c(1, 2, 3, 4), 
+                    save_months = 8, 
                     cropped = TRUE,
-                    gridded = TRUE,
+                    gridded = FALSE,
                     quant_col = .5,
                     top_limit = .5,
                     combining_v = "v6.03")

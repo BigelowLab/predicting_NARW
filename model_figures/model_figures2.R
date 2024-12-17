@@ -64,7 +64,7 @@ ggplot(chyp_data, aes(x = lon, y = lat)) +
   theme(legend.position = "none")
 }
 
-# Figure 3. Threshold Corrections and Combined Effects
+# Threshold Corrections and Combined Effects
 if (FALSE) {
 Bathy_test <- 0:1000
 b <- as.data.frame(x = Bathy_test)
@@ -103,7 +103,7 @@ ggplot(plot_data, aes(x = Bathy_test, y = val, col = type)) +
   labs(y = "Value", x = "Bathymetry (m)")
 }
 
-# Figure 4. Scatter plots of Measured Dry Weight vs. Modeled patch probability
+# Scatter plots of Measured Dry Weight vs. Modeled patch probability
 if (FALSE) {
   
   # PREP
@@ -176,6 +176,40 @@ if (FALSE) {
   p |> save_analysis(v, "pred_dryweight_paper_figure")
 }
 
+# Variable Importance
+if (FALSE) {
+  chyp_imp <- var_imp("v6.03", plot = FALSE)
+  cfin_imp <- var_imp("v6.01", plot = FALSE)
+  
+  variable_name_map <- c(
+    "Vel"="Velocity",
+    "month"="Month",
+    "SST"="SST",
+    "SSS"="SSS",
+    "MLD"="MLD",
+    "Tbtm"="SBT",
+    "Sbtm"="SBS",
+    "Bathy_depth"="Bathymetry"
+  )
+  
+  both_species <- bind_rows(
+    chyp_imp |> mutate(type = "C. hyperboreus"),
+    cfin_imp |> mutate(type = "C. finmarchicus")
+  ) |>
+    mutate(Variable = variable_name_map[Variable] |> 
+             factor(levels = variable_name_map)) |>
+    arrange(desc(Importance))
+  
+  ggplot(both_species, aes(x = Importance, y = Variable)) +
+    facet_wrap(~type) +
+    theme_bw() +
+    theme(axis.title.y = element_blank(),
+          strip.text = element_text(face = "italic")) +
+    labs(x = "Variable Importance") +
+    geom_bar(stat = 'identity', fill = "dodgerblue4")
+  
+}
+
 # POSTER 
 if (FALSE) {
   cfin_data <- data
@@ -206,7 +240,6 @@ if (FALSE) {
     guides(col = guide_legend(override.aes = list(size = 3, alpha = 1) ) )
   
 }
-
 
 
 

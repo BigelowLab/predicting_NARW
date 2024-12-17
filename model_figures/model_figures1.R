@@ -1,5 +1,5 @@
 
-# Figure S4
+# Barchart of region abundance
 if (FALSE) {
   combined_present <- get_combined_data(
     read_preds("v6.01", NULL, "PRESENT", 1:12, quantile = TRUE),
@@ -67,7 +67,7 @@ if (FALSE) {
   save_analysis(p, "v6.01", "v6.01_v6.03_threshold_bar_charts")
 }
 
-# Figure 4: Model Performance and Data Composition
+# Model Performance and Data Composition
 if (FALSE) {
 # Bar chart
 get_species_barchart <- function(v) {
@@ -107,10 +107,10 @@ cfin_auc <- roc_curves_w_ci("v6.01", save = FALSE)
 chyp_auc <- roc_curves_w_ci("v6.03", save = FALSE)
 
 # go to run_version.R
-model_preds_cfin <- get_v_wkfs(v) |>
+model_preds_ <- get_v_wkfs(v) |>
   apply_quantile_preds(select(data, -patch), c(.5, 1))
-cfin_dryweight_g <- pred_v_dryweight_g(v, tm, model_preds_cfin, save = FALSE)
-chyp_dryweight_g <- pred_v_dryweight_g(v, tm, model_preds_chyp, save = FALSE)
+cfin_dryweight_g <- pred_v_dryweight_g(v, tm, model_preds_, save = FALSE)
+chyp_dryweight_g <- pred_v_dryweight_g(v, tm, model_preds_, save = FALSE)
 
 ggarrange(ggplot() + theme_void(), ggplot() + theme_void(), cfin_barchart, 
           chyp_barchart + 
@@ -130,7 +130,7 @@ ggarrange(ggplot() + theme_void(), ggplot() + theme_void(), cfin_barchart,
           nrow = 4, ncol = 2, heights = c(1, 2, 2, 3), align = "hv")
 }
 
-# Make regions shapefiles for Figure 1, S4
+# Make regions shapefiles
 if (FALSE) {
 # fucking around with shapefiles
 target_regions <- c("MAB", "GoM", "WSS", "ESS", "swGSL", "nGSL", "NLS")
@@ -203,4 +203,31 @@ ggplot() +
                fill = "lightgray", col = "gray") + 
   coord_sf(xlim = c(-76, -40), ylim = c(35, 60), crs = 4326) +
   theme_bw()
+}
+
+# Phi threshold comparison
+if (FALSE) {
+  combined_present <- get_combined_data(
+    read_preds("v6.01", NULL, "PRESENT", 8, quantile = TRUE),
+    read_preds("v6.03", NULL, "PRESENT", 8, quantile = TRUE),
+    quantile = "50%"
+  )
+  
+  combined_future <- get_combined_data(
+    read_preds("v6.01", 2075, "RCP85", 8, quantile = TRUE),
+    read_preds("v6.03", 2075, "RCP85", 8, quantile = TRUE),
+    quantile = "50%"
+  )
+  
+  thresholds <- list("\u03C6 = 10%"=.1, "\u03C6 = 15%"=.15, 
+                     "\u03C6 = 20%"=.2, "\u03C6 = 25%"=.25)
+  
+  thresholds_datas <- thresholds |>
+    map(~get_threshold_data(combined_future, combined_present, 
+                            threshold = .x, quantile = .5)[[1]])
+  
+  plot <- plot_data_list(thresholds_datas, 0, plot_threshold, "REL_PRESENCE", 
+                 TRUE, gridded = TRUE, title = 'Phi threshold comparison')
+  
+  plot
 }

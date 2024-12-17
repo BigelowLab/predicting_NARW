@@ -379,7 +379,7 @@ plot_data_list <- function(data_list, downsample, plot_func, plot_col,
   cex_override <- NULL
   if (gridded) {
     if (length(data_list) == 4) {
-      cex_override <- c(.35, .45, .6, .7)[downsample + 1]
+      cex_override <- c(.005, .45, .6, .7)[downsample + 1]
     } else {
       cex_override <- c(.005, .1, .2, .2) [downsample + 1]
     }
@@ -432,8 +432,6 @@ run_scenarios <- function(v, downsample, plot_scenarios, save_months,
     for (crop in cropped) {
       plots_list <- plot_data_list(preds_list, downsample, plot_func, plot_col, 
                                    crop, gridded = gridded, title = title)
-      
-      plots_list[[1]]
       
       filename <- paste0(filename_base,
                          ifelse(cropped, "_cropped", ""),
