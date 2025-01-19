@@ -2,6 +2,7 @@
 library(RColorBrewer)
 library(viridis)
 library(vip)
+library(ape)
 
 # Saves a desired model analysis to file
 save_analysis <- function(plot, v, name) {
@@ -624,3 +625,12 @@ heatmap_geography <- function(v, data, model_preds) {
                 v, "geographic_heatmap")
 }
 
+# Retrieve spatial autocorrelation using Moran's I
+spatial_autocorrelation <- function(data) {
+  data_dists <- as.matrix(dist(cbind(data$lon, data$lat)))
+  data_dists_inverted <- 1/(data_dists + .001)
+  diag(data_dists_inverted) <- 0
+  
+  Moran.I(data$patch |> as.numeric(), data_dists_inverted)
+}
+  
