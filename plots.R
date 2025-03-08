@@ -61,7 +61,7 @@ save_plots <- function(plot_obj, v, year, scenario, filename) {
   
   ppath <- pred_path(v, year, scenario, filename)
   
-  pdf(ppath)
+  grDevices::cairo_pdf(ppath)
   print(plot_obj)
   dev.off()
   
@@ -275,7 +275,7 @@ plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
   }
   
   ggplot(mon_data, aes(x = lon, y = lat)) +
-    geom_point(aes(col = get(plotCol)), cex = cex, pch = 15) +
+    geom_point(aes(col = get(plotCol)), cex = cex, pch = 15, show.legend = TRUE) +
     theme_bw() + 
     theme(panel.grid.minor = element_blank(),
           panel.grid.major = element_blank(),
@@ -308,10 +308,11 @@ plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
 plot_raw <- function(plot_base, top_limit = 1) {
   plot_base + 
     scale_color_viridis(option = "turbo", limits = c(0, top_limit)) +
-    labs(color = "Patch Probability") + 
+    labs(color = expression("\u03C4"[h] * "-patch probability")) + 
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
-                 fill = "white")
+                 fill = "white") + 
+    theme(legend.title = element_text(vjust = .8))
 }
 
 plot_95pIQR <- function(plot_base, top_limit = 1) {
@@ -320,7 +321,8 @@ plot_95pIQR <- function(plot_base, top_limit = 1) {
     labs(color = "Uncertainty") + 
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
-                 fill = "white")
+                 fill = "white") + 
+    theme(legend.title = element_text(vjust = .8))
 }
 
 plot_difference <- function(plot_base, limit = .9) {
@@ -345,10 +347,10 @@ plot_difference <- function(plot_base, limit = .9) {
 
 plot_threshold <- function(plot_base) {
   # naming factor levels 
-  feedstatus <- list(FALSE_FALSE = "No Habitat",
-                     FALSE_TRUE = "New Habitat", 
-                     TRUE_FALSE = "Lost Habitat", 
-                     TRUE_TRUE = "Retained Habitat")
+  feedstatus <- list(FALSE_FALSE = "No habitat",
+                     FALSE_TRUE = "New habitat", 
+                     TRUE_FALSE = "Lost habitat", 
+                     TRUE_TRUE = "Retained habitat")
   
   # palette for colors 
   pal <- c(FALSE_FALSE = "white",
@@ -470,7 +472,7 @@ get_quant_raw_plots <- function(v,
                  paste(v, "and", combining_v), v),
           ifelse(scenario != "PRESENT", 
                  paste(scenario, year), scenario),
-          quant_name, "Quant Patch Probability")
+          quant_name, "Quant patch probability")
   }
   
   filename_base <- paste0("plot_", quant_col*100)
@@ -504,7 +506,7 @@ get_quant_pIQR_plots <- function(v,
                  paste(v, "and", combining_v), v),
           ifelse(scenario != "PRESENT", 
                  paste(scenario, year), scenario),
-          "95th pIQR Uncertainty")
+          "95th pIQR uncertainty")
   }
   
   filename_base <- "_plot_95pIQR"

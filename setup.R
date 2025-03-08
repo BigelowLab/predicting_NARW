@@ -11,6 +11,7 @@ suppressPackageStartupMessages(
     library(purrr)
     library(gridExtra)
     library(bundle) # for reading in/out keras models
+    library(grDevices) # for printing tau character to pdf
   })
 
 ### DATA HELPERS
@@ -50,11 +51,11 @@ mon_names <- function() {
 # Returns a list of variable abbreviations
 var_abb <- function() {
   list(Bathy_depth = "Bathymetry", 
-       MLD = "Mixed Layer Depth", 
-       SST = "Surface Temperature", 
-       Tbtm = "Bottom Temperature", 
-       Sbtm = "Bottom Salinity", 
-       SSS = "Surface Salinity", 
+       MLD = "Mixed layer depth", 
+       SST = "Surface temperature", 
+       Tbtm = "Bottom temperature", 
+       Sbtm = "Bottom salinity", 
+       SSS = "Surface salinity", 
        Vel = "Velocity", 
        month = "Month")
 }

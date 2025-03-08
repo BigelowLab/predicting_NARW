@@ -8,7 +8,8 @@ library(ape)
 save_analysis <- function(plot, v, name) {
   savepath <- v_path(v, "model", paste0(name, ".pdf"))
   
-  pdf(savepath)
+  #pdf(savepath)
+  grDevices::cairo_pdf(savepath)
   print(plot)
   dev.off()
 }
@@ -318,12 +319,11 @@ response_curves_data <- function(v,
     geom_ribbon(data = eval_strip, 
                 aes(x = value, ymax = `97.5%`, ymin = `2.5%`),
                 fill = "grey50", alpha = .8) +
-    geom_line(data = eval_strip, 
-              mapping = aes(x = value, y = `50%`)) +
+    geom_line(data = eval_strip,
+              mapping = aes(x = value, y = `50%`, linetype = "th")) +
     facet_wrap(~ variable, scales = ifelse(same_y, "free_x", "free"), 
                nrow = ifelse(save_plot, 3, 2), ncol = ifelse(save_plot, 3, 4)) +
     theme_bw() +
-    theme(legend.position = "none") +
     labs(x = "Covariate value", 
          y = expression("Predicted"~τ[b]*"-patch,"~τ[h]*"-patch probability")) +
     ggtitle(paste(v, 
@@ -332,12 +332,21 @@ response_curves_data <- function(v,
   
   if (show_no_post && !is.null(post)) {
     plot <- plot + 
-      geom_line(data = eval_strip, aes(x = value, y = no_post), 
-                linetype = 6, color = "blue")
+      geom_line(data = eval_strip, 
+                mapping = aes(x = value, y = no_post, linetype = "tb"),
+                color = "blue")
   }
 
   plot <- plot +
-    geom_vline(aes(xintercept = `50%`), color = "red")
+    scale_linetype_manual(
+      labels = c("th" = expression(τ[h]*"-patch probability"), 
+                    "tb" = expression(τ[b]*"-patch probability")),
+      values = c("th" = 1, "tb" = 6),
+      drop = FALSE
+    ) +
+    geom_vline(aes(xintercept = `50%`), color = "red") +
+    theme(legend.position = "bottom", 
+          legend.title = element_blank())
   
   if (save_plot) {
     savename <- paste0("response_curves_mon", mid_mon, 
@@ -347,9 +356,9 @@ response_curves_data <- function(v,
                        ifelse(same_y, "_fixedY", ""),
                        ifelse(!is_null(bottom_latitude), paste0("_lat", bottom_latitude), ""))
     save_analysis(plot, v, savename)
-  } else {
-    plot
-  }
+  } 
+  
+  return (plot)
 }
 
 # creates a 2D response curve plot
@@ -571,8 +580,8 @@ pred_v_dryweight_g <- function(v, threshold_method, model_preds, save = TRUE) {
       annotate("text", x = x_val, y = y_val,
                label = c(paste("rho =", round(cortest$estimate, 4)), 
                          #can cheat this since reliably less than 2.2e-16
-                         "p < 2.2e-16", 
-                         paste("n =", nrow(ref))))
+                         expression("p < 2.2 x "*10^{-16}),
+                         paste("n =", format(nrow(ref), big.mark=",", scientific=FALSE))))
   }
   
   if (save) {

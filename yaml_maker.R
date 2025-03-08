@@ -1,10 +1,10 @@
-v <- "v6.01.01"
+v <- "v6.04"
 overwrite <- FALSE
 
 # training data 
 strata = "patch"
 brickman_data_config <- list(interval = "mon",
-                             vars = c("Bathy_depth", "MLD", "SST", "Sbtm", #"SSS",
+                             vars = c("Bathy_depth", "SST", "Sbtm", "SSS", #"MLD",
                                       "Tbtm", "U", "V"), #####
                              transform = c("Vel = sqrt(U^2 + V^2)",
                                            "Bathy_depth = log10(Bathy_depth + 1)",

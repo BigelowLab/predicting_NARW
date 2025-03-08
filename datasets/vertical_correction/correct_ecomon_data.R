@@ -54,6 +54,17 @@ ecomon <- ecomon |>
   mutate(Month = factor(month.abb[Month], 
                         levels = month.abb))
 
+#vertical distribution correction by latitude/longitude
+ggplot(ecomon |> filter(to_correct),
+       aes( x=longitude, y=latitude, col=corrected_CIV_CVI_m2/CIV_CVI_m2)) +
+  geom_point() + 
+  theme_bw() +
+  coord_quickmap() +
+  scale_color_viridis(option="turbo") +
+  labs(col="corrected/original")
+
+# Figure S1. Effect of vertical distribution correction on 
+# Calanus finmarchicus abundance records in EcoMon dataset
 result_plot <- ggplot(ecomon |> filter(to_correct), 
        aes(x = CIV_CVI_m2/10^6, y = corrected_CIV_CVI_m2/10^6)) +
   geom_abline() +
@@ -62,10 +73,10 @@ result_plot <- ggplot(ecomon |> filter(to_correct),
   theme_bw() +
   scale_x_continuous( #trans = "log10", 
                      name = expression("Observed late-stage" ~ 
-                       italic("C. finmarchicus") ~ "(ind ⋅"~10^-6~m^2~")")) +
+                       italic("C. finmarchicus") ~ "(ind x"~10^-6~m^2~")")) +
   scale_y_continuous(#trans = "log10", 
     name = expression("Corrected late-stage" ~ 
-                        italic("C. finmarchicus") ~ "(ind ⋅"~10^-6~m^2~")")) +
+                        italic("C. finmarchicus") ~ "(ind x"~10^-6~m^2~")")) +
   labs(col = "Bathymetry (m)", shape = "Corrected") +
   scale_color_viridis_c(option = "turbo")
   #coord(xlim = c(0, 1.3), ylim = c(0, 1.3))
@@ -74,9 +85,9 @@ result_plot
 
 # code to save result plot and ecomon dataset to file
 if (FALSE) {
-  root <- "/mnt/ecocast/projects/students/ojohnson/brickman/figure_files"
+  root <- "/mnt/ecocast/projects/students/ojohnson/brickman/model_figures"
   
-  pdf(file = file.path(root, "figure2_verticalcorrection.pdf"),
+  pdf(file = file.path(root, "figureS1_verticalcorrection.pdf"),
       width = 7, height = 5)
   print(result_plot)
   dev.off()

@@ -12,6 +12,7 @@ if (FALSE) {
 #' - correct threshold method?
 #' - has the yaml already been run? 
 
+v <- "v6.04" # experimental C.fin without MLD
 v <- "v6.03" # Final Calanus hyperboreus version
 v <- "v6.01" # Final Calanus finmarchicus version
 config <- read_config(v) # Read configuration file
@@ -30,7 +31,7 @@ count(data, patch) |> mutate(prop = n/sum(n))
 
 # data_split <- data |>
 #   initial_split(data, prop = 3/4, strata = patch)
-K = 100
+K = 100 
 folds <- data |>
   mc_cv(prop = .75, times = K, strata = patch)
 
@@ -38,7 +39,7 @@ folds <- data |>
 wkf_fits <- wkf_version(folds, 
                        config$model$model_list, 
                        v = v, 
-                       overwrite = TRUE)
+                       overwrite = FALSE)
 
 #  scenario  year
 # 1 RCP45     2055
@@ -65,7 +66,7 @@ get_quantile_preds(v,
 
 # Raw and threshold plots
 
-get_quant_raw_plots("v6.03", 0,
+get_quant_raw_plots(v = "v6.03", 0,
                     plot_scenarios = c(5), 
                     save_months = c(1:12), 
                     cropped = TRUE,
@@ -85,10 +86,10 @@ get_quant_threshold_plots(v,
 # Combined plots
 get_quant_raw_plots(v = "v6.01", 
                     0,
-                    plot_scenarios = c(1, 2, 3, 4), 
-                    save_months = 8, 
+                    plot_scenarios = c(5), 
+                    save_months = 1:12, 
                     cropped = TRUE,
-                    gridded = FALSE,
+                    gridded = TRUE,
                     quant_col = .5,
                     top_limit = .5,
                     combining_v = "v6.03")
@@ -127,19 +128,20 @@ vi_list <- varimp$Variable
 
 roc_curves_w_ci(v)
 
+# Figure 4, Response Curves
 response_curves_data(v,
                      data,
                      vimp = vi_list, 
-                     vars = c("Bathy_depth", "SST", "Tbtm", #"SSS",
-                              "MLD", "Vel", "Sbtm"),
-                     num_pts = 100,
+                     vars = c("Bathy_depth", "SST", "Tbtm", "MLD", #"SSS",
+                              "Vel", "Sbtm"),
+                     num_pts = 50,
                      mid_mon = 8,
                      log_bathy = TRUE,
                      same_y = FALSE,
                      save_plot = FALSE,
                      show_no_post = TRUE,
                      patch_only_medians = FALSE,
-                     bottom_latitude = 42,
+                     bottom_latitude = 42, #NULL for cfin, 42 for chyp
                      post = post)
 
 response_curve_2var(v,
