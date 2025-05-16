@@ -56,7 +56,7 @@ get_quantile_preds <- function(v,
   brickman_vars <- read_config(v)$training_data$brickman_data$vars
   
   bathy <- NULL
-  not_bathymetry <- !brickman_vars %in% "Bathy_depth"
+  not_bathymetry <- !brickman_vars %in% c("Bathy_depth", "lat")
   mon_vars <- brickman_vars[not_bathymetry]
   
   if (!all(not_bathymetry)) {
@@ -97,6 +97,7 @@ get_quantile_preds <- function(v,
       if (crop) {
         mon_data <- mon_data |>
           filter(lon >= -77 & lon <= -42.5 & lat >= 35.2 & lat <= 57.6)
+          # filter(lon >= -90 & lon <= 0 & lat >= 20 & lat <= 70)
       }
       
       wkf_quantiles <- apply_quantile_preds(wkfs, mon_data, desired_quants) |>
@@ -112,6 +113,7 @@ get_quantile_preds <- function(v,
       
       ### Saving to file
       file <- file.path(path, paste0("quant_preds", mon, ".csv.gz"))
+      # file <- file.path(path, paste0("quant_preds_expanded", mon, ".csv.gz"))
       readr::write_csv(wkf_quantiles, file)
       if (verbose) {message(file)}
       

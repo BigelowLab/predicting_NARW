@@ -57,7 +57,8 @@ var_abb <- function() {
        Sbtm = "Bottom salinity", 
        SSS = "Surface salinity", 
        Vel = "Velocity", 
-       month = "Month")
+       month = "Month", 
+       lat = "Latitude")
 }
 
 # converts a month number to the corresponding string 

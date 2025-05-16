@@ -28,6 +28,7 @@ read_preds <- function(v, year, scenario, save_months = 1:12,
   setwd(folder)
   
   file_prefix <- ifelse(quantile, "quant_preds", "predictions")
+  #file_prefix <- ifelse(quantile, "quant_preds_expanded", "predictions")
   
   # helper method that retrieves data for a month
   read_month <- function(mon) {
@@ -257,6 +258,41 @@ grid_6_plots <- function(plotlist, title) {
 
 ######## PLOT GENERATION HELPERS ############
 
+if (FALSE) {
+  # go to predictions.R, commencement lines 100 and 115, save
+  # go to run_version.R and run get_quantile_preds for desired target
+  # come back here, uncomment line 31 & save
+  # run below script
+  # bounds of image customisable via line 100 in predictions.R
+  
+  cfin <- read_preds("v6.01", 2075, "RCP85", 9, TRUE)
+  chyp <- read_preds("v6.03", 2075, "RCP85", 9, TRUE)
+  comb <- get_combined_data(cfin, chyp, "50%")
+  
+  p <- ggplot(comb$Sep, aes(x = lon, y = lat)) +
+    geom_point(aes(col = get("50%")), cex = .3, pch = 15, show.legend = TRUE) +
+    theme_void() + 
+    theme(panel.grid.minor = element_blank(),
+                  panel.grid.major = element_blank(),
+                  legend.position = "none",
+                  panel.background = element_rect(fill='transparent'),
+                  plot.background = element_rect(fill='transparent', color=NA)) +
+    coord_quickmap(xlim = c(-90, 0), 
+                   ylim = c(20, 70), 
+                   expand = FALSE) + 
+    scale_color_viridis(option = "mako", direction = -1, limits = c(0, .5))
+    # geom_polygon(data = ggplot2::map_data("world"),
+    #              aes(long, lat, group = group),
+    #              fill = "white")
+  
+  png(filename = "tester3.png", width = 15, height = 10, 
+      units = "in", res = 400, bg = "transparent") 
+  p
+  dev.off()
+  
+  
+}
+
 #' base plotting function - returns a base plot common to all plot functions
 plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
                       cropped = TRUE, title = NULL,
@@ -265,8 +301,9 @@ plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
     xlim <- c(-77.0, -42.5) 
     ylim <- c(35.2, 57.6)
     cex <- c(.5, 1, 1.7, 2)[downsample + 1]
-  } else {
-    xlim <- ylim <- NULL 
+  } else { # bounding box for Brickman data
+    xlim <- c(-100, 25)
+    ylim <- c(15, 80)
     cex <- c(.23, .3, .4, .4)[downsample + 1]
   }
 
@@ -283,25 +320,8 @@ plot_base <- function(mon_data, downsample, plotCol = ".pred_1",
     labs(x = "Longitude", y = "Latitude") +
     coord_quickmap(xlim = xlim, 
                    ylim = ylim, 
-                   expand = FALSE) +
-    ggtitle(title)
-  
-  # p <- ggplot(mon_data, aes(x = lon, y = lat)) +
-  #   geom_point(aes(col = get(plotCol)), cex = cex, pch = 15) +
-  #   theme_void() + 
-  #   theme(panel.grid.minor = element_blank(),
-  #         panel.grid.major = element_blank(),
-  #         legend.position = "none",
-  #         panel.background = element_rect(fill='transparent'),
-  #         plot.background = element_rect(fill='transparent', color=NA)) +
-  #   labs(x = "Latitude", y = "Longitude") +
-  #   coord_quickmap(xlim = xlim, 
-  #                  ylim = ylim) +
-  #   ggtitle(title) +
-  #   # REMOVE
-  #   scale_color_viridis(option = "inferno", limits = c(0, .4))
-  # 
-  # ggsave("transparentplot.png", p, bg='transparent')
+                   expand = FALSE) + 
+    ggtitle(title) 
 }
 
 #' Functions that each tack on additional needed attributes for plot type
@@ -338,7 +358,7 @@ plot_difference <- function(plot_base, limit = .9) {
                                      "orangered3", 
                                      "red4"),
                           na.value = "white",
-                          breaks = c(-.3, -.15, 0, .15, .3)) +
+                          breaks = seq(limit * -1, limit, by = limit/2)) +
     labs(color = "Relative patch probability") + 
     geom_polygon(data = ggplot2::map_data("world"), 
                  aes(long, lat, group = group),
@@ -650,5 +670,45 @@ get_quant_range_plots <- function(v, downsample, year, scenario,
                      ".pdf")
   
   save_plots(quant_plots_list, v, year, scenario, filename)
+}
+
+get_version_comparison <- function(v, downsample, 
+                                   comparison_v, 
+                                   year, scenario,
+                                   save_months, 
+                                   cropped = TRUE, 
+                                   gridded = FALSE, 
+                                   quant_col = .5, 
+                                   limit = .1) {
+  quant_name <- paste0(quant_col*100, "%")
+  
+  # defining pass-in variables
+  base_preds <- read_preds(v, 
+                           year = year,
+                           scenario = scenario,
+                           save_months = save_months,
+                           quantile = TRUE)
+  comparison_preds <- read_preds(comparison_v, 
+                                 year = year,
+                                 scenario = scenario,
+                                 save_months = save_months,
+                                 quantile = TRUE)
+  
+  diff_data <- get_difference_data(base_preds, comparison_preds, quantile = quant_name)
+  
+  title <- paste(paste(v, "minus", comparison_v), 
+                 ifelse(scenario != "PRESENT", 
+                        paste(scenario, year), scenario),
+                 "change in", quant_name, "patch probability")
+  
+  filename <- paste0(v, "_", comparison_v, "_plot_versioncomparison.pdf")
+  
+  plot_function <- function(x) {plot_difference(x, limit = limit)}
+  
+  # call to base function
+  plots <- plot_data_list(diff_data, downsample, plot_function, quant_name, 
+                 cropped, gridded, title)
+  
+  save_plots(plots, v, year, scenario, filename)
 }
 

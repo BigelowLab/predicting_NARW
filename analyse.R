@@ -235,9 +235,11 @@ response_curves_data <- function(v,
   # helper that generates evaluation strip and runs predictions
   var_response <- function(var, post_func = post) {
     
-    base <- bind_cols(lat = NA, 
-                      lon = NA, 
+    base <- bind_cols(lon = NA, 
                       select(medians, -all_of(var)))
+    if (!("lat" %in% vars)) {
+      base <- bind_cols(lat = NA)
+    }
     
     # input dataframe for workflows
     in_df <- (if(var == "month"){

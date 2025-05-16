@@ -14,7 +14,7 @@ get_workflows <- function(folds, model_name) {
   template_data <- get_rsplit(folds, 1) |> training()
   # recipe
   recipe_spec <- recipe(patch ~ ., data = template_data) |>
-    update_role(lat, lon, U, V, new_role = "ID") |>
+    update_role(lat, lon, U, V, new_role = "ID") |> # remove lat if necessary
     step_log(Bathy_depth, offset = 1, base = 10) |>
     step_mutate(Vel = sqrt(U^2 + V^2), role = "predictor") |>
     step_normalize(all_numeric_predictors())
