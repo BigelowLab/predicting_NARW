@@ -14,6 +14,29 @@ save_analysis <- function(plot, v, name) {
   dev.off()
 }
 
+sensitivity_optimization <- function(v, save = TRUE) {
+  test_res <- get_testing("v6.03")
+  roc_results <- roc_curve(test_res, patch, .pred_1, event_level = "second")
+  autoplot(roc_results)
+  
+  f_meas(test_res, patch, .pred_class, event_level = "second")
+  
+  calc_f_meas_threshold <- function(threshold) {
+    res <- test_res |>
+      mutate(estimate = (.pred_1 > threshold) |> as.numeric() |> factor()) |>
+      f_meas(patch, estimate, 
+             event_level = "second")
+    res$.estimate[[1]]
+  }
+  
+  roc_results |>
+    ggplot(aes(x = .threshold)) + 
+    geom_line(aes(y = specificity), col = "yellowgreen") + 
+    geom_line(aes(y = sensitivity), col = "violet") + 
+    labs(title = "Brickman model chyp", x = "Threshold", 
+         y = "Specificity (green), Sensitivity (pink)")
+}
+
 # Calculates AUC by month 
 roc_curves_w_ci <- function(v, save = TRUE) {
   

@@ -12,6 +12,7 @@ if (FALSE) {
 #' - correct threshold method?
 #' - has the yaml already been run? 
 
+v <- "v6.01.02" # C. fin predictions without post correction
 v <- "v6.06" # experimental C. hyp model with latitude as covariate
 v <- "v6.05" # experimental C. fin model with latitude as covariate
 v <- "v6.04" # experimental C.fin without MLD
@@ -23,7 +24,7 @@ set.seed(config$model$seed)
 
 # Define tau-b patch threshold (tm) and bioenergetic correction (post)
 tm <- flat_tm(30000*195)
-post <- stephane_final(state_val = "rest", post = TRUE)
+post <- NULL #stephane_final(state_val = "rest", post = TRUE)
 
 # Retreive dataset
 data <- data_from_config(config$training_data, 
@@ -41,7 +42,7 @@ folds <- data |>
 wkf_fits <- wkf_version(folds, 
                        config$model$model_list, 
                        v = v, 
-                       overwrite = TRUE)
+                       overwrite = FALSE)
 
 #  scenario  year
 # 1 RCP45     2055
@@ -50,14 +51,14 @@ wkf_fits <- wkf_version(folds,
 # 4 RCP85     2075
 # 5 PRESENT     NA
 
-ds_master <- 3 # Downsampling value. Keep at 0 for any final plots
+ds_master <- 1 # Downsampling value. Keep at 0 for any final plots
 
-get_quantile_preds("v6.03", 
-                   save_scenarios = c(4, 5), 
-                   save_months = 2:10,
+get_quantile_preds(v, 
+                   save_scenarios = c(5), 
+                   save_months = 1:12,
                    downsample = ds_master,
                    post = post, 
-                   crop = FALSE)
+                   crop = TRUE)
 
 get_quantile_preds(v, 
                    save_scenarios = c(1, 2, 3), 
